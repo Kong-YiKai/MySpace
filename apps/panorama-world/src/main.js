@@ -91,6 +91,21 @@ const viewer = new Viewer({
 
 const markersPlugin = viewer.getPlugin(MarkersPlugin);
 
+// Register panorama lifecycle listeners before awaiting the guide renderer.
+// The panorama can finish from cache while its optional character layer loads.
+viewer.addEventListener('load-progress', ({ progress }) => {
+  const percent = Math.round(progress * 100);
+  progressValue.style.width = `${percent}%`;
+  progressLabel.textContent = `加载全景底图 ${percent}%`;
+});
+
+viewer.addEventListener('ready', () => {
+  panoramaReady = true;
+  loadingLayer.classList.add('is-hidden');
+  progressLabel.textContent = '全景已就绪';
+  guide?.announceInitialScene();
+});
+
 function openPanel(entity) {
   const interaction = entity.components.interaction;
   panelKicker.textContent = entity.kind.replaceAll('-', ' ').toUpperCase();
@@ -144,19 +159,6 @@ markersPlugin.addEventListener('select-marker', ({ marker }) => {
 });
 
 viewer.addEventListener('click', () => guide?.noteActivity());
-
-viewer.addEventListener('load-progress', ({ progress }) => {
-  const percent = Math.round(progress * 100);
-  progressValue.style.width = `${percent}%`;
-  progressLabel.textContent = `加载全景底图 ${percent}%`;
-});
-
-viewer.addEventListener('ready', () => {
-  panoramaReady = true;
-  loadingLayer.classList.add('is-hidden');
-  progressLabel.textContent = '全景已就绪';
-  guide?.announceInitialScene();
-});
 
 recenterButton.addEventListener('click', () => {
   guide?.noteActivity();
