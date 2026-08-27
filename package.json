@@ -1,0 +1,24 @@
+{
+  "name": "spatial-intelligence-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "UI-agnostic core framework for generating and continuously operating interactive 3D scenes from text, images, and video.",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "node ./scripts/check-framework.mjs"
+  },
+  "dependencies": {
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "vitest": "4.0.18"
+  },
+  "files": ["src", "README.md"],
+  "packageManager": "pnpm@11.19.0"
+}
