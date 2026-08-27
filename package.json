@@ -8,8 +8,13 @@
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm --filter @spatial-intelligence/core build && pnpm -r --if-present typecheck",
     "check": "pnpm -r --if-present check",
-    "dev": "pnpm --parallel --filter './apps/*' dev",
-    "infra:up": "docker compose -f infra/compose.yaml up -d",
+    "dev": "pnpm --parallel --filter @spatial-home/web --filter @spatial-intelligence/api --filter @spatial-intelligence/generation-worker dev",
+    "dev:web": "pnpm --filter @spatial-home/web dev",
+    "dev:services": "pnpm --parallel --filter @spatial-intelligence/api --filter @spatial-intelligence/generation-worker dev",
+    "infra:pull": "node scripts/prepare-infra-images.mjs",
+    "infra:up": "node scripts/prepare-infra-images.mjs --local-only && docker compose --parallel 1 -f infra/compose.yaml up -d",
+    "infra:status": "docker compose -f infra/compose.yaml ps",
+    "infra:logs": "docker compose -f infra/compose.yaml logs -f --tail=100",
     "infra:down": "docker compose -f infra/compose.yaml down"
   },
   "devDependencies": {
