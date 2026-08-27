@@ -26,8 +26,9 @@ export const workshopScene = {
         panoramaMarker: { yaw: 0, pitch: -4, tone: 'gold' },
         interaction: {
           title: '世界之门',
-          copy: '门后的第二个场景尚未预制。现在它作为“场景节点跳转”的真实入口保留在清单中。',
-          actionLabel: '查看节点设计',
+          copy: '门后连接着预制的“明亮客厅”。点击进入第二个全景节点，过程中不需要加载高斯泼溅。',
+          actionLabel: '进入明亮客厅',
+          targetSceneId: 'bright-apartment-002',
         },
       },
     },

@@ -3,13 +3,13 @@ import '@photo-sphere-viewer/markers-plugin/index.css';
 import { Viewer } from '@photo-sphere-viewer/core';
 import { MarkersPlugin } from '@photo-sphere-viewer/markers-plugin';
 import { parseSceneManifest } from 'spatial-intelligence-core';
+import { brightApartmentScene } from './scenes/bright-apartment.scene.js';
 import { workshopScene } from './scenes/workshop.scene.js';
 import './styles.css';
 
-const scene = parseSceneManifest(workshopScene);
-const panoramaAsset = scene.assets.find((asset) => asset.id === 'workshop-panorama');
-const entitiesById = new Map(scene.entities.map((entity) => [entity.id, entity]));
-const startView = scene.metadata.startView;
+const scenes = [workshopScene, brightApartmentScene].map(parseSceneManifest);
+const scenesById = new Map(scenes.map((scene) => [scene.sceneId, scene]));
+let activeScene = scenesById.get('world-gate-workshop-001');
 
 const loadingLayer = document.querySelector('#loading-layer');
 const progressValue = document.querySelector('#progress-value');
@@ -22,7 +22,7 @@ const panelTitle = document.querySelector('#panel-title');
 const panelCopy = document.querySelector('#panel-copy');
 const panelAction = document.querySelector('#panel-action');
 
-document.querySelector('#scene-title').textContent = scene.metadata.title;
+document.querySelector('#scene-title').textContent = activeScene.metadata.title;
 
 function getMarkerClass(tone) {
   return `world-marker world-marker--${tone}`;
@@ -39,20 +39,50 @@ function createMarker(entity) {
   };
 }
 
-const markers = scene.entities
+function getMarkers(scene) {
+  return scene.entities
   .filter((entity) => entity.interactive && entity.components.panoramaMarker)
   .map(createMarker);
+}
+
+function getPanoramaAsset(scene) {
+  return scene.assets.find((asset) => asset.metadata.projection === 'equirectangular');
+}
+
+function getEntity(scene, entityId) {
+  return scene.entities.find((entity) => entity.id === entityId);
+}
+
+function updateSceneTitle(scene) {
+  document.querySelector('#scene-title').textContent = scene.metadata.title;
+}
+
+function useScene(scene, { transition = true } = {}) {
+  const panoramaAsset = getPanoramaAsset(scene);
+  const startView = scene.metadata.startView;
+
+  activeScene = scene;
+  closePanel();
+  updateSceneTitle(scene);
+  markersPlugin.setMarkers(getMarkers(scene));
+
+  return viewer.setPanorama(panoramaAsset.uri, {
+    position: { yaw: `${startView.yaw}deg`, pitch: `${startView.pitch}deg` },
+    zoom: startView.zoom,
+    transition: transition ? { effect: 'fade', speed: 700 } : false,
+  });
+}
 
 const viewer = new Viewer({
   container: document.querySelector('#viewer'),
-  panorama: panoramaAsset.uri,
-  defaultYaw: `${startView.yaw}deg`,
-  defaultPitch: `${startView.pitch}deg`,
-  defaultZoomLvl: startView.zoom,
+  panorama: getPanoramaAsset(activeScene).uri,
+  defaultYaw: `${activeScene.metadata.startView.yaw}deg`,
+  defaultPitch: `${activeScene.metadata.startView.pitch}deg`,
+  defaultZoomLvl: activeScene.metadata.startView.zoom,
   maxFov: 95,
   minFov: 35,
   navbar: ['zoom', 'move', 'fullscreen'],
-  plugins: [MarkersPlugin.withConfig({ markers })],
+  plugins: [MarkersPlugin.withConfig({ markers: getMarkers(activeScene) })],
 });
 
 const markersPlugin = viewer.getPlugin(MarkersPlugin);
@@ -63,7 +93,8 @@ function openPanel(entity) {
   panelTitle.textContent = interaction.title;
   panelCopy.textContent = interaction.copy;
   panelAction.textContent = interaction.actionLabel;
-  panelAction.hidden = false;
+  panelAction.disabled = false;
+  panelAction.hidden = !interaction.actionLabel;
   panel.dataset.entityId = entity.id;
   panel.setAttribute('aria-hidden', 'false');
 }
@@ -74,7 +105,7 @@ function closePanel() {
 }
 
 markersPlugin.addEventListener('select-marker', ({ marker }) => {
-  const entity = entitiesById.get(marker.data.entityId);
+  const entity = getEntity(activeScene, marker.data.entityId);
   if (entity) openPanel(entity);
 });
 
@@ -90,6 +121,7 @@ viewer.addEventListener('ready', () => {
 });
 
 recenterButton.addEventListener('click', () => {
+  const startView = activeScene.metadata.startView;
   viewer.animate({
     yaw: `${startView.yaw}deg`,
     pitch: `${startView.pitch}deg`,
@@ -100,8 +132,21 @@ recenterButton.addEventListener('click', () => {
 
 panelClose.addEventListener('click', closePanel);
 panelAction.addEventListener('click', () => {
-  const entity = entitiesById.get(panel.dataset.entityId);
+  const entity = getEntity(activeScene, panel.dataset.entityId);
   if (!entity) return;
-  panelAction.textContent = entity.id === 'portal-door' ? '第二场景待接入' : '该交互层待接入';
+  const targetSceneId = entity.components.interaction.targetSceneId;
+  if (targetSceneId) {
+    const targetScene = scenesById.get(targetSceneId);
+    if (targetScene) {
+      panelAction.textContent = '正在穿过门…';
+      panelAction.disabled = true;
+      useScene(targetScene).catch(() => {
+        panelAction.textContent = '场景切换失败，请重试';
+        panelAction.disabled = false;
+      });
+      return;
+    }
+  }
+  panelAction.textContent = '该交互层待接入';
   panelAction.disabled = true;
 });
