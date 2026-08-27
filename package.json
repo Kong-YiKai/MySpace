@@ -1,24 +1,22 @@
 {
-  "name": "spatial-intelligence-core",
+  "name": "spatial-home-simulator",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
-  "description": "UI-agnostic core framework for generating and continuously operating interactive 3D scenes from text, images, and video.",
-  "main": "./src/index.js",
-  "exports": {
-    ".": "./src/index.js"
-  },
+  "description": "AI-assisted home viewing and decoration simulator built on an interactive 3D scene core.",
   "scripts": {
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "check": "node ./scripts/check-framework.mjs"
-  },
-  "dependencies": {
-    "zod": "4.3.6"
+    "build": "pnpm -r --if-present build",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm --filter @spatial-intelligence/core build && pnpm -r --if-present typecheck",
+    "check": "pnpm -r --if-present check",
+    "dev": "pnpm --parallel --filter './apps/*' dev",
+    "infra:up": "docker compose -f infra/compose.yaml up -d",
+    "infra:down": "docker compose -f infra/compose.yaml down"
   },
   "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
     "vitest": "4.0.18"
   },
-  "files": ["src", "README.md"],
   "packageManager": "pnpm@11.19.0"
 }

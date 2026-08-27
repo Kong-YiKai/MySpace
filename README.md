@@ -1,79 +1,64 @@
-# Spatial Intelligence Core
+# 栖居 · AI 看房装修模拟器
 
-这是一个纯核心框架，不包含前端页面、示例房间、固定交互或具体渲染实现。
+这是一个面向住宅看房与装修决策的交互式 3D 应用：用户从预设户型或上传户型图开始，先查看毛坯空间，再通过自然语言生成装修方案、点选并修改家具，最后以第一人称沉浸看房。
 
-产品目标是把一段文字、一张图片或一段视频交给生成服务，得到结构化、可交互的真实 3D 场景；随后用户可以继续定义场景中的对象、属性、行为、事件和变化，并由运行时以可验证、可回滚的方式持续执行。
+当前仓库的目标不是制作一组静态页面，而是先打通一条状态连续、可替换真实 AI/3D Provider 的产品骨架。
 
-## 框架边界
+## 核心工作流
 
-框架负责：
+1. 选择“大开间”或“标准一居室”，也可以上传户型图。
+2. 校验户型图并生成可旋转查看的毛坯房。
+3. 选择墙纸，输入装修要求，观察 AI 分析与生成状态。
+4. 精装家具无缝进入原场景；点选沙发、茶几、地毯、花瓶或绿植并修改颜色。
+5. 从户型门口进入第一人称“沉浸看房”；键鼠控制已接通，手势输入作为独立计算服务接入。
 
-- 统一文字、图片、视频输入为 `GenerationRequest`。
-- 通过可替换 Provider 执行 3D 场景生成。
-- 将生成结果规范化为通用 `SceneManifest`。
-- 用白名单 `SceneCommand` 修改实体、组件、环境和行为。
-- 以事务、revision、undo/redo 和事件订阅管理持续变化。
-- 注册并触发用户定义的 Behavior。
-- 为渲染器、生成服务和持久化提供抽象适配器。
-
-框架不负责：
-
-- 决定产品页面、控制面板或编辑器长什么样。
-- 固定使用 React、Three.js、Unity、Unreal 或其他渲染技术。
-- 假设场景一定是房间、看房、家装或任何单一行业。
-- 内置任何案例对象、视觉预设或输入设备逻辑。
-- 在核心包中绑定 Aholo、Lux3D 或特定模型服务。
-
-## 核心数据流
+## 仓库结构
 
 ```text
-Text / Image / Video
-        ↓
-GenerationRequest
-        ↓
-GenerationPipeline → Provider Adapter
-        ↓
-SceneManifest（资产、实体、组件、行为、环境）
-        ↓
-SpatialRuntime ← SceneCommand / Behavior Trigger
-        ↓
-Renderer Adapter / Persistence Adapter / Event Subscribers
+apps/
+  web/                    React + React Three Fiber 产品应用
+  api/                    会话、上传、任务创建和状态查询边界
+  generation-worker/      异步 3D 生成任务处理
+  compute-worker-python/  户型识别、3D 计算与手势输入服务边界
+packages/
+  contracts/              前后端共享的住宅流程与平台事件契约
+  spatial-core/           场景清单、命令、运行时和 Provider 注册表
+infra/                    PostgreSQL、NATS、MinIO 本地基础设施
+Docs/                     产品工程方案与阶段计划
 ```
 
-## 目录
+住宅流程属于 `apps/web` 与服务编排层；`spatial-core` 仍保持可复用，不把“沙发”或“墙纸”等业务对象写进通用场景协议。
 
-```text
-src/
-  schema/       输入、Scene Manifest 和命令协议
-  generation/   Provider 注册与生成管线
-  runtime/      事务执行、revision、历史与事件
-  behavior/     用户行为处理器注册表
-  adapters/     Renderer 与 Persistence 抽象契约
-  errors/       框架错误类型
-  index.js      公共导出
-scripts/
-  check-framework.mjs
-Docs/
-  SpatialHome_AI_完整提案与开发交接_v0.2.docx
-  Spatial_Intelligence_通用框架提案与开发交接_v0.3.docx
-```
+## 本地运行
 
-## 使用
+要求 Node.js 24+、pnpm 11+。
 
 ```bash
 pnpm install
-pnpm test
-pnpm check
+pnpm --filter @spatial-home/web dev
 ```
 
-框架目前没有 `dev` 或 `build` 页面命令，因为界面与渲染技术尚未确定。
+如需同时运行 API、Worker 与本地基础设施：
 
-## 扩展方式
+```bash
+pnpm infra:up
+pnpm dev
+```
 
-1. 实现 Generation Provider，把某一种生成服务的输出转成 `SceneManifest`。
-2. 实现 Renderer Adapter，把 Manifest 和变更记录映射到选定的 3D 引擎。
-3. 注册 Behavior Handler，让用户定义的触发器产生受限命令。
-4. 实现 Persistence Adapter，保存资产、Manifest、revision 与事件记录。
-5. 最后再由独立应用层决定 UI、输入设备和具体商业场景。
+默认地址：
 
-看房只是未来可建立在该框架之上的业务案例之一，与展览、培训、零售、游戏化叙事、数字孪生等场景处于同一层级。
+- Web：`http://localhost:5173`
+- API：`http://localhost:3000`
+
+当前 Web 使用 Fake Provider 式的本地计时流程模拟毛坯和装修生成，目的是验证完整体验。API 与 Worker 的版本化生成任务链路仍可独立运行；下一阶段将把前端模拟器替换为真实任务状态流。
+
+## 质量命令
+
+```bash
+pnpm check
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+详细边界、状态机、接口和开发阶段见 [工程架构与开发指南](Docs/ENGINEERING_ARCHITECTURE_AND_DEVELOPMENT_GUIDE.md)。

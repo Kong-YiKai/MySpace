@@ -2,11 +2,18 @@ import { generationRequestSchema } from '../schema/generation.schema.js';
 import { parseSceneManifest } from '../schema/sceneManifest.schema.js';
 
 export class GenerationPipeline {
+  /**
+   * @param {{ providers?: any, persistence?: any }} [dependencies]
+   */
   constructor({ providers, persistence = null } = {}) {
     this.providers = providers;
     this.persistence = persistence;
   }
 
+  /**
+   * @param {unknown} rawRequest
+   * @param {{ signal?: AbortSignal, onProgress?: (event: Record<string, unknown>) => void }} [options]
+   */
   async generate(rawRequest, { signal, onProgress = () => {} } = {}) {
     const request = generationRequestSchema.parse(rawRequest);
     const provider = this.providers.resolve(request);

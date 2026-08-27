@@ -1,0 +1,23 @@
+{
+  "name": "@spatial-intelligence/generation-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=../../.env --import tsx src/worker.ts",
+    "start": "node --env-file-if-exists=../../.env --import tsx src/worker.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --exclude 'dist/**'"
+  },
+  "dependencies": {
+    "@spatial-intelligence/contracts": "workspace:*",
+    "@spatial-intelligence/core": "workspace:*",
+    "@nats-io/transport-node": "3.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
+    "vitest": "4.0.18"
+  }
+}

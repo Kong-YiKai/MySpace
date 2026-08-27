@@ -1,0 +1,28 @@
+{
+  "name": "@spatial-home/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@react-three/fiber": "9.6.1",
+    "@spatial-intelligence/contracts": "workspace:*",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "three": "0.184.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.3",
+    "@types/three": "0.183.1",
+    "@vitejs/plugin-react": "6.0.1",
+    "typescript": "^5.9.3",
+    "vite": "8.1.0",
+    "vitest": "4.0.18"
+  }
+}

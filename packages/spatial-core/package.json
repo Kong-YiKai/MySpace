@@ -1,0 +1,29 @@
+{
+  "name": "@spatial-intelligence/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "UI-agnostic domain core for interactive generated 3D scenes.",
+  "main": "./src/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "check": "node ./scripts/check-framework.mjs"
+  },
+  "dependencies": {
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "4.0.18"
+  },
+  "files": ["src", "dist"]
+}
