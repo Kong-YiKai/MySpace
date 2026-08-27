@@ -11,7 +11,9 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "node ./scripts/check-framework.mjs"
+    "check": "node ./scripts/check-framework.mjs",
+    "dev:panorama": "pnpm --filter @myspace/panorama-world dev",
+    "build:panorama": "pnpm --filter @myspace/panorama-world build"
   },
   "dependencies": {
     "zod": "4.3.6"

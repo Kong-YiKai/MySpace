@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="MySpace 全景互动世界 MVP：预制场景、热点与可扩展 SceneManifest。"
+    />
+    <title>世界之门 · 全景互动原型</title>
+  </head>
+  <body>
+    <main class="experience-shell">
+      <section class="viewer-shell" aria-label="世界之门全景体验">
+        <div id="viewer" aria-label="可拖动浏览的 360 度全景图"></div>
+
+        <div class="loading-layer" id="loading-layer" aria-live="polite">
+          <div class="loading-card">
+            <span class="eyebrow">MYSPACE / SCENE 001</span>
+            <strong>正在展开世界…</strong>
+            <div class="progress-track" aria-hidden="true">
+              <div class="progress-value" id="progress-value"></div>
+            </div>
+            <span id="progress-label">加载全景底图</span>
+          </div>
+        </div>
+
+        <header class="top-bar">
+          <div>
+            <span class="eyebrow">预制全景互动 MVP</span>
+            <h1 id="scene-title">世界之门前厅</h1>
+          </div>
+          <button class="ghost-button" id="recenter-button" type="button">回到入口视角</button>
+        </header>
+
+        <aside class="scene-panel" id="scene-panel" aria-live="polite" aria-hidden="true">
+          <button class="panel-close" id="panel-close" type="button" aria-label="关闭详情">×</button>
+          <span class="eyebrow" id="panel-kicker">INTERACTION</span>
+          <h2 id="panel-title">欢迎来到世界之门</h2>
+          <p id="panel-copy">拖动视角，寻找发光的互动锚点。</p>
+          <button class="panel-action" id="panel-action" type="button" hidden></button>
+        </aside>
+
+        <footer class="hint-bar">
+          <span>拖动环视</span>
+          <i></i>
+          <span>滚轮缩放</span>
+          <i></i>
+          <span>点击光点交互</span>
+        </footer>
+      </section>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

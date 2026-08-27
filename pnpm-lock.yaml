@@ -16,6 +16,22 @@ importers:
         specifier: 4.0.18
         version: 4.0.18(lightningcss@1.33.0)
 
+  apps/panorama-world:
+    dependencies:
+      '@photo-sphere-viewer/core':
+        specifier: 5.14.3
+        version: 5.14.3
+      '@photo-sphere-viewer/markers-plugin':
+        specifier: 5.14.3
+        version: 5.14.3(@photo-sphere-viewer/core@5.14.3)
+      spatial-intelligence-core:
+        specifier: workspace:*
+        version: link:../..
+    devDependencies:
+      vite:
+        specifier: ^7.0.0
+        version: 7.3.6(lightningcss@1.33.0)
+
 packages:
 
   '@esbuild/aix-ppc64@0.28.2':
@@ -183,6 +199,14 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [glibc]
+
+  '@photo-sphere-viewer/core@5.14.3':
+    resolution: {integrity: sha512-gSDzM1fuVfWQiDf8Y4AgI+un/wsKmeFO7cY4IFEbjhD1BTXUviSL8GuCXABNfPK2EThZLJqpOXxrbYAhblJrfQ==}
+
+  '@photo-sphere-viewer/markers-plugin@5.14.3':
+    resolution: {integrity: sha512-OAXHfXR2riaBwS8+OhqcAT2KZ3ch1QI9mJaBq6R9Abs+hcZ5f6QbWJ0IS9SFIGcdHFgBbz6+ea1FcwA9V3zx4g==}
+    peerDependencies:
+      '@photo-sphere-viewer/core': 5.14.3
 
   '@rollup/rollup-android-arm-eabi@4.63.0':
     resolution: {integrity: sha512-70TeIFezKKy65LgAVyQh+w94/gjWhvPWaLaGGeMEgVrPkQhuj/M5bAYYZzIFUj9Y69oHyTm5Um/R6gcLh4A8JA==}
@@ -522,6 +546,9 @@ packages:
   std-env@3.10.0:
     resolution: {integrity: sha512-5GS12FdOZNliM5mAOxFRg7Ir0pWz8MdpYm6AY6VPkGpbA7ZzmbzNcBJQ0GPvvyWgcY7QAhCgf9Uy89I03faLkg==}
 
+  three@0.184.0:
+    resolution: {integrity: sha512-wtTRjG92pM5eUg/KuUnHsqSAlPM296brTOcLgMRqEeylYTh/CdtvKUvCyyCQTzFuStieWxvZb8mVTMvdPyUpxg==}
+
   tinybench@2.9.0:
     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
 
@@ -703,6 +730,14 @@ snapshots:
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
+
+  '@photo-sphere-viewer/core@5.14.3':
+    dependencies:
+      three: 0.184.0
+
+  '@photo-sphere-viewer/markers-plugin@5.14.3(@photo-sphere-viewer/core@5.14.3)':
+    dependencies:
+      '@photo-sphere-viewer/core': 5.14.3
 
   '@rollup/rollup-android-arm-eabi@4.63.0':
     optional: true
@@ -989,6 +1024,8 @@ snapshots:
   stackback@0.0.2: {}
 
   std-env@3.10.0: {}
+
+  three@0.184.0: {}
 
   tinybench@2.9.0: {}
 

@@ -68,6 +68,17 @@ pnpm check
 
 框架目前没有 `dev` 或 `build` 页面命令，因为界面与渲染技术尚未确定。
 
+## 全景互动 MVP（应用层）
+
+`apps/panorama-world/` 是建立在核心框架之上的独立浏览器原型，不把具体渲染器、Aholo 或业务场景写入 `src/`。它直接读取一个符合 `SceneManifest` 的预制场景清单，使用等距柱状全景图完成环视与 HTML 热点交互。
+
+```bash
+pnpm install
+pnpm dev:panorama
+```
+
+浏览器打开开发服务器输出的地址即可预览。首个场景使用已归档的 Aholo 生成全景底图；它验证的是“全景图先行”的 3DoF 体验，不依赖 PLY、SPZ 或高斯泼溅查看器。
+
 ## 扩展方式
 
 1. 实现 Generation Provider，把某一种生成服务的输出转成 `SceneManifest`。
