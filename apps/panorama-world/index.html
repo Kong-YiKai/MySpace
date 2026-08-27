@@ -41,6 +41,21 @@
           <button class="panel-action" id="panel-action" type="button" hidden></button>
         </aside>
 
+        <aside class="guide-presence" id="guide-presence" aria-label="Grokbot 世界向导" data-open="false" data-presence="active">
+          <section class="guide-bubble" aria-live="polite">
+            <span class="eyebrow">SUBSYSTEM GUIDE</span>
+            <strong id="guide-name">Grokbot</strong>
+            <p id="guide-message">……连接正在稳定。</p>
+            <div class="guide-suggestions" id="guide-suggestions" aria-label="向导建议"></div>
+          </section>
+          <button class="guide-trigger" id="guide-trigger" type="button" aria-label="呼叫 Grokbot 世界向导" aria-expanded="false">
+            <span class="guide-avatar-shell" aria-hidden="true">
+              <svg id="guide-avatar" viewBox="-15 -15 259 259"></svg>
+            </span>
+            <span class="guide-trigger-label">呼叫向导</span>
+          </button>
+        </aside>
+
         <footer class="hint-bar">
           <span>拖动环视</span>
           <i></i>

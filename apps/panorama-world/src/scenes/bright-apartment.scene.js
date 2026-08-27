@@ -86,5 +86,23 @@ export const brightApartmentScene = {
     title: '明亮客厅',
     subtitle: '规则户型对照场景：用于验证普通图到全景图的最小可控路径。',
     startView: { yaw: 0, pitch: -8, zoom: 48 },
+    guide: {
+      name: 'Grokbot',
+      greeting: '这里是明亮客厅。空间结构更清晰，正好适合验证引导和物件锚点。',
+      hints: [
+        {
+          label: '回到工坊',
+          entityId: 'apartment-door',
+          leadingCopy: '返回世界之门的方向已经标出。',
+          copy: '这扇门会把你带回工坊前厅，场景切换仍然由浏览器全景层完成。',
+        },
+        {
+          label: '看看茶几锚点',
+          entityId: 'apartment-table',
+          leadingCopy: '我先把视线落到茶几。',
+          copy: '茶几现在仍属于全景底图；未来这里可以叠加一个独立 GLB 检视入口。',
+        },
+      ],
+    },
   },
 };

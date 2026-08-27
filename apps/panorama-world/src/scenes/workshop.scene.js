@@ -86,5 +86,23 @@ export const workshopScene = {
     title: '世界之门前厅',
     subtitle: '一张普通场景图经 Aholo 生成的 2:1 等距柱状全景图。',
     startView: { yaw: 0, pitch: -3, zoom: 48 },
+    guide: {
+      name: 'Grokbot',
+      greeting: '世界之门已展开。要先穿过门去客厅，还是看看这座展台？',
+      hints: [
+        {
+          label: '带我去世界之门',
+          entityId: 'portal-door',
+          leadingCopy: '锁定世界之门。跟着我的视线走。',
+          copy: '门后连接着明亮客厅。这个跳转是预制场景节点，不依赖高斯泼溅。',
+        },
+        {
+          label: '看看展台',
+          entityId: 'display-plinth',
+          leadingCopy: '让我把视线移向展台。',
+          copy: '展台目前是独立 3D 物件检视的预留锚点；全景底图本身不会假装成可移动模型。',
+        },
+      ],
+    },
   },
 };

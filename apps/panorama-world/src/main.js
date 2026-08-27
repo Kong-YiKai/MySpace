@@ -3,6 +3,7 @@ import '@photo-sphere-viewer/markers-plugin/index.css';
 import { Viewer } from '@photo-sphere-viewer/core';
 import { MarkersPlugin } from '@photo-sphere-viewer/markers-plugin';
 import { parseSceneManifest } from 'spatial-intelligence-core';
+import { PanoramaGrokGuide } from './guide/grok-guide.js';
 import { brightApartmentScene } from './scenes/bright-apartment.scene.js';
 import { workshopScene } from './scenes/workshop.scene.js';
 import './styles.css';
@@ -10,6 +11,8 @@ import './styles.css';
 const scenes = [workshopScene, brightApartmentScene].map(parseSceneManifest);
 const scenesById = new Map(scenes.map((scene) => [scene.sceneId, scene]));
 let activeScene = scenesById.get('world-gate-workshop-001');
+let guide = null;
+let panoramaReady = false;
 
 const loadingLayer = document.querySelector('#loading-layer');
 const progressValue = document.querySelector('#progress-value');
@@ -65,6 +68,7 @@ function useScene(scene, { transition = true } = {}) {
   closePanel();
   updateSceneTitle(scene);
   markersPlugin.setMarkers(getMarkers(scene));
+  guide?.setScene(scene);
 
   return viewer.setPanorama(panoramaAsset.uri, {
     position: { yaw: `${startView.yaw}deg`, pitch: `${startView.pitch}deg` },
@@ -104,10 +108,42 @@ function closePanel() {
   panel.removeAttribute('data-entity-id');
 }
 
+function focusGuideEntity(entityId) {
+  const entity = getEntity(activeScene, entityId);
+  const marker = entity?.components.panoramaMarker;
+  if (!marker) return Promise.reject(new Error(`引导目标不存在：${entityId}`));
+
+  return viewer.animate({
+    yaw: `${marker.yaw}deg`,
+    pitch: `${marker.pitch}deg`,
+    speed: '0.7rpm',
+  });
+}
+
+guide = await PanoramaGrokGuide.create({
+  root: document.querySelector('#guide-presence'),
+  scene: activeScene,
+  onNavigate: focusGuideEntity,
+});
+
+// The future model bridge receives this intentionally small semantic API.
+// It cannot select any of the renderer's raw states, effects or DOM values.
+window.panoramaGuide = Object.freeze({
+  applyDirective: (directive) => guide.applyDirective(directive),
+  get activeSceneId() { return activeScene.sceneId; },
+});
+
+if (panoramaReady) guide.announceInitialScene();
+
 markersPlugin.addEventListener('select-marker', ({ marker }) => {
   const entity = getEntity(activeScene, marker.data.entityId);
-  if (entity) openPanel(entity);
+  if (entity) {
+    openPanel(entity);
+    guide?.observeEntity(entity);
+  }
 });
+
+viewer.addEventListener('click', () => guide?.noteActivity());
 
 viewer.addEventListener('load-progress', ({ progress }) => {
   const percent = Math.round(progress * 100);
@@ -116,11 +152,14 @@ viewer.addEventListener('load-progress', ({ progress }) => {
 });
 
 viewer.addEventListener('ready', () => {
+  panoramaReady = true;
   loadingLayer.classList.add('is-hidden');
   progressLabel.textContent = '全景已就绪';
+  guide?.announceInitialScene();
 });
 
 recenterButton.addEventListener('click', () => {
+  guide?.noteActivity();
   const startView = activeScene.metadata.startView;
   viewer.animate({
     yaw: `${startView.yaw}deg`,
@@ -132,6 +171,7 @@ recenterButton.addEventListener('click', () => {
 
 panelClose.addEventListener('click', closePanel);
 panelAction.addEventListener('click', () => {
+  guide?.noteActivity();
   const entity = getEntity(activeScene, panel.dataset.entityId);
   if (!entity) return;
   const targetSceneId = entity.components.interaction.targetSceneId;
