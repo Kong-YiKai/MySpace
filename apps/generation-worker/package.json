@@ -11,9 +11,10 @@
     "test": "vitest run --exclude 'dist/**'"
   },
   "dependencies": {
+    "@nats-io/jetstream": "^3.4.0",
+    "@nats-io/transport-node": "3.4.0",
     "@spatial-intelligence/contracts": "workspace:*",
-    "@spatial-intelligence/core": "workspace:*",
-    "@nats-io/transport-node": "3.4.0"
+    "@spatial-intelligence/core": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.23.12",

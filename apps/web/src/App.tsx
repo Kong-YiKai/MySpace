@@ -2,7 +2,6 @@ import {
   useEffect,
   useMemo,
   useReducer,
-  useRef,
   useState,
   type ChangeEvent,
   type ReactNode,
@@ -21,6 +20,14 @@ import {
   type ExperienceState,
 } from './domain/experience';
 import { validateFloorPlanFile } from './domain/floorPlanValidator';
+import {
+  createDecoration,
+  createHousingSession,
+  followJob,
+  getHousingSession,
+  uploadFloorPlan,
+  validateFloorPlan,
+} from './api';
 
 const objectLabels: Record<EditableRoomObject, string> = {
   sofa: '布艺沙发',
@@ -41,72 +48,94 @@ const objectPalette = ['#d8cbb9', '#c5b8a8', '#b7c2b1', '#d4a99b', '#eee3cd'];
 
 export function App() {
   const [state, dispatch] = useReducer(experienceReducer, initialExperienceState);
-  const timers = useRef<number[]>([]);
 
-  const clearTimers = () => {
-    timers.current.forEach((timer) => window.clearTimeout(timer));
-    timers.current = [];
-  };
-  const schedule = (callback: () => void, delay: number) => {
-    timers.current.push(window.setTimeout(callback, delay));
-  };
-
-  useEffect(() => clearTimers, []);
-
-  const beginShell = (source: HousingLayoutSource, name: string) => {
-    clearTimers();
+  const beginShell = async (source: HousingLayoutSource, name: string) => {
     dispatch({ type: 'SELECT_LAYOUT', source, name });
-    schedule(() => dispatch({
-      type: 'SHELL_PROGRESS',
-      progress: 46,
-      message: '正在生成墙体、门窗与地面…',
-    }), 520);
-    schedule(() => dispatch({
-      type: 'SHELL_PROGRESS',
-      progress: 82,
-      message: '正在布置光照与入口视角…',
-    }), 1_120);
-    schedule(() => dispatch({ type: 'SHELL_READY' }), 1_720);
+    try {
+      const session = await createHousingSession(source);
+      dispatch({ type: 'SHELL_SESSION_STARTED', sessionId: session.sessionId, jobId: session.shellJobId });
+      await followJob(session.shellJobId, (event) => {
+        if (event.eventType === 'generation.progressed') {
+          dispatch({
+            type: 'SHELL_PROGRESS',
+            progress: Math.round(event.payload.progress * 100),
+            message: event.payload.message ?? shellProgressMessage(event.payload.status),
+          });
+        }
+        if (event.eventType === 'generation.failed') {
+          dispatch({ type: 'PLAN_REJECTED', message: event.payload.errorMessage });
+        }
+      });
+      const completed = await getHousingSession(session.sessionId);
+      if (completed.status !== 'shell-ready' || !completed.manifest) {
+        throw new Error(completed.errorMessage ?? '毛坯空间生成失败，请重试。');
+      }
+      dispatch({ type: 'SHELL_READY', manifest: completed.manifest });
+    } catch (error) {
+      dispatch({ type: 'PLAN_REJECTED', message: userMessage(error, '毛坯空间生成失败，请重试。') });
+    }
   };
 
   const handlePlanUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = '';
     if (!file) return;
-    clearTimers();
     dispatch({ type: 'VALIDATE_PLAN' });
     const result = await validateFloorPlanFile(file);
     if (!result.accepted) {
       dispatch({ type: 'PLAN_REJECTED', message: result.reason ?? '未识别到有效户型图。' });
       return;
     }
-    beginShell({ kind: 'uploaded-plan', assetId: `local-${file.name}` }, `上传户型 · ${file.name}`);
+    try {
+      const assetId = await uploadFloorPlan(file);
+      const job = await validateFloorPlan(assetId);
+      const result = await followJob(job.jobId, (event) => {
+        if (event.eventType === 'floor-plan.progressed') {
+          dispatch({
+            type: 'SHELL_PROGRESS',
+            progress: Math.round(event.payload.progress * 100),
+            message: event.payload.message,
+          });
+        }
+        if (event.eventType === 'floor-plan.rejected') {
+          dispatch({ type: 'PLAN_REJECTED', message: event.payload.errorMessage });
+        }
+      });
+      if ('eventType' in result && result.eventType === 'floor-plan.rejected') return;
+      if (!('eventType' in result) && result.kind === 'floor-plan' && result.job.status === 'failed') {
+        dispatch({ type: 'PLAN_REJECTED', message: result.job.errorMessage ?? '户型图识别失败，请重试。' });
+        return;
+      }
+      await beginShell({ kind: 'uploaded-plan', assetId }, `上传户型 · ${file.name}`);
+    } catch (error) {
+      dispatch({ type: 'PLAN_REJECTED', message: userMessage(error, '户型图识别失败，请重试。') });
+    }
   };
 
-  const startDecoration = () => {
-    if (state.brief.trim().length < 3) return;
-    clearTimers();
+  const startDecoration = async () => {
+    if (state.brief.trim().length < 3 || !state.sessionId) return;
     dispatch({ type: 'START_DECORATION' });
-    schedule(() => dispatch({
-      type: 'DECOR_PROGRESS',
-      progress: 36,
-      message: '已理解需求，正在规划家具动线…',
-    }), 720);
-    schedule(() => dispatch({
-      type: 'DECOR_PROGRESS',
-      progress: 62,
-      message: '正在生成沙发、茶几与软装材质…',
-    }), 1_520);
-    schedule(() => dispatch({
-      type: 'DECOR_PROGRESS',
-      progress: 86,
-      message: '正在协调低饱和配色与场景光照…',
-    }), 2_240);
-    schedule(() => dispatch({ type: 'DECOR_READY' }), 3_020);
+    try {
+      const job = await createDecoration(state.sessionId, state.brief, state.wallpaper);
+      const result = await followJob(job.jobId, (event) => {
+        if (event.eventType === 'generation.progressed') {
+          dispatch({
+            type: 'DECOR_PROGRESS',
+            progress: Math.round(event.payload.progress * 100),
+            message: event.payload.message ?? decorationProgressMessage(event.payload.status),
+          });
+        }
+      });
+      if ('eventType' in result && result.eventType === 'generation.failed') {
+        throw new Error(result.payload.errorMessage);
+      }
+      dispatch({ type: 'DECOR_READY' });
+    } catch (error) {
+      dispatch({ type: 'DECOR_FAILED', message: userMessage(error, '装修任务失败，请重试。') });
+    }
   };
 
   const reset = () => {
-    clearTimers();
     dispatch({ type: 'RESET' });
   };
 
@@ -131,6 +160,7 @@ export function App() {
           decorated={decorated}
           immersive={state.stage === 'immersive'}
           oneBedroom={oneBedroom}
+          manifest={state.manifest}
           wallpaper={state.wallpaper}
           objectColors={state.objectColors}
           selectedObject={state.selectedObject}
@@ -251,8 +281,8 @@ function LayoutSelection({
           <input type="file" accept="image/png,image/jpeg,image/webp" onChange={onUpload} />
           <span className="upload-icon"><UploadIcon /></span>
           <span>
-            <strong>{state.stage === 'validating-plan' ? '正在识别户型结构…' : '上传我的户型图'}</strong>
-            <small>支持 PNG、JPG、WebP · 最大 10 MB</small>
+            <strong>{state.stage === 'validating-plan' ? (state.statusText || '正在识别户型结构…') : '上传我的户型图'}</strong>
+            <small>{state.stage === 'validating-plan' ? `真实任务进度 ${state.progress}%` : '支持 PNG、JPG、WebP · 最大 10 MB'}</small>
           </span>
           {state.stage === 'validating-plan' ? <span className="spinner" /> : <ArrowUpRightIcon />}
         </label>
@@ -425,6 +455,8 @@ function AssistantPanel({
               </div>
             </section>
 
+            {state.error && <p className="form-error" role="alert">{state.error}</p>}
+
             {(state.stage === 'brief-analyzing' || state.stage === 'decor-generating') && (
               <PanelProgress state={state} compact />
             )}
@@ -497,6 +529,22 @@ function FloorPlanMini({ variant }: { variant: 'studio' | 'one-bedroom' }) {
       <i className="furniture sofa" /><i className="furniture table" /><i className="furniture bed" />
     </span>
   );
+}
+
+function shellProgressMessage(status: string): string {
+  if (status === 'accepted') return '毛坯任务已进入队列…';
+  if (status === 'normalizing') return '正在校验场景清单与坐标系…';
+  return '正在生成墙体、门窗与地面…';
+}
+
+function decorationProgressMessage(status: string): string {
+  if (status === 'accepted') return '装修任务已进入队列…';
+  if (status === 'normalizing') return '正在归一化家具与材质…';
+  return '正在规划家具动线与软装材质…';
+}
+
+function userMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function Icon({ children, viewBox = '0 0 24 24' }: { children: ReactNode; viewBox?: string }) {

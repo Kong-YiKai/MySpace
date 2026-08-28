@@ -3,6 +3,7 @@ import type {
   HousingExperienceStage,
   HousingLayoutSource,
   WallpaperPreset,
+  SceneManifest,
 } from '@spatial-intelligence/contracts';
 
 export type ObjectColors = Record<EditableRoomObject, string>;
@@ -19,13 +20,17 @@ export interface ExperienceState {
   statusText: string;
   error: string | null;
   attachmentName: string | null;
+  sessionId: string | null;
+  shellJobId: string | null;
+  manifest: SceneManifest | null;
 }
 
 export type ExperienceAction =
   | { type: 'VALIDATE_PLAN' }
   | { type: 'SELECT_LAYOUT'; source: HousingLayoutSource; name: string }
+  | { type: 'SHELL_SESSION_STARTED'; sessionId: string; jobId: string }
   | { type: 'SHELL_PROGRESS'; progress: number; message: string }
-  | { type: 'SHELL_READY' }
+  | { type: 'SHELL_READY'; manifest?: SceneManifest }
   | { type: 'PLAN_REJECTED'; message: string }
   | { type: 'SET_BRIEF'; brief: string }
   | { type: 'SET_WALLPAPER'; wallpaper: WallpaperPreset }
@@ -33,6 +38,7 @@ export type ExperienceAction =
   | { type: 'START_DECORATION' }
   | { type: 'DECOR_PROGRESS'; progress: number; message: string }
   | { type: 'DECOR_READY' }
+  | { type: 'DECOR_FAILED'; message: string }
   | { type: 'SELECT_OBJECT'; objectId: EditableRoomObject | null }
   | { type: 'SET_OBJECT_COLOR'; objectId: EditableRoomObject; color: string }
   | { type: 'ENTER_IMMERSIVE' }
@@ -60,6 +66,9 @@ export const initialExperienceState: ExperienceState = {
   statusText: '',
   error: null,
   attachmentName: null,
+  sessionId: null,
+  shellJobId: null,
+  manifest: null,
 };
 
 export function experienceReducer(
@@ -87,12 +96,15 @@ export function experienceReducer(
       };
     case 'SHELL_PROGRESS':
       return { ...state, progress: action.progress, statusText: action.message };
+    case 'SHELL_SESSION_STARTED':
+      return { ...state, sessionId: action.sessionId, shellJobId: action.jobId };
     case 'SHELL_READY':
       return {
         ...state,
         stage: 'shell-ready',
         progress: 100,
         statusText: '毛坯空间已就绪',
+        manifest: action.manifest ?? state.manifest,
       };
     case 'PLAN_REJECTED':
       return {
@@ -130,6 +142,14 @@ export function experienceReducer(
         stage: 'decorated',
         progress: 100,
         statusText: '装修方案已生成，可以点选物体继续修改',
+      };
+    case 'DECOR_FAILED':
+      return {
+        ...state,
+        stage: 'shell-ready',
+        progress: 0,
+        statusText: '',
+        error: action.message,
       };
     case 'SELECT_OBJECT':
       return { ...state, selectedObject: action.objectId };

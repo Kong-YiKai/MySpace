@@ -11,9 +11,14 @@
     "test": "vitest run --exclude 'dist/**'"
   },
   "dependencies": {
-    "@spatial-intelligence/contracts": "workspace:*",
+    "@aws-sdk/client-s3": "^3.1118.0",
+    "@aws-sdk/s3-request-presigner": "^3.1118.0",
+    "@nats-io/jetstream": "^3.4.0",
     "@nats-io/transport-node": "3.4.0",
+    "@spatial-intelligence/contracts": "workspace:*",
+    "@types/pg": "^8.23.1",
     "fastify": "5.12.1",
+    "pg": "^8.23.0",
     "zod": "4.3.6"
   },
   "devDependencies": {

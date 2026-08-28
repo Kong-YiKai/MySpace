@@ -2,7 +2,7 @@
 
 > 状态：产品方向已敲定
 >
-> 当前版本：0.4
+> 当前版本：0.5
 >
 > 本文是当前实现与后续研发的唯一 Markdown 主方案；历史“通用 3D 平台优先、暂不做页面”的约束作废。
 
@@ -122,9 +122,10 @@ SceneManifest + revisioned commands
 
 1. 浏览器检查 MIME、大小、能否解码和基础结构特征，快速拒绝明显无关内容。
 2. API 发放签名 URL，原文件上传对象存储。
-3. Vision Worker 识别墙线、门窗、房间分区、比例与置信度。
-4. 低置信度或无关图片返回可解释错误，不创建 3D 任务。
-5. 合格结果转换为结构化平面，再生成毛坯 `SceneManifest`。
+3. Vision Worker 调用 GPT 理解房间、墙体、门窗、入口和应忽略的家具/纹理，返回严格结构化结果。
+4. 本地几何阶段只在 GPT 候选区域吸附真实墙线，并执行墙体密度、房间面积和拓扑质量门。
+5. 低置信度、无关图片或拓扑异常返回可解释错误，不创建 3D 任务。
+6. 合格结果转换为结构化平面，再生成毛坯 `SceneManifest`。
 
 客户端校验不是安全或质量边界。服务端必须重新验证文件签名、解码结果与模型置信度。
 
@@ -192,7 +193,7 @@ SceneManifest + revisioned commands
 
 ## 10. 实施阶段
 
-### Iteration 1：连续体验骨架（当前）
+### Iteration 1：连续体验骨架（已完成）
 
 - 可运行的户型选择/上传界面。
 - 毛坯与精装共享的 3D 场景。
@@ -203,12 +204,14 @@ SceneManifest + revisioned commands
 
 退出门禁：`pnpm test`、`pnpm typecheck`、`pnpm build` 全部通过；主流程可在桌面浏览器完成；无关图片有明确拒绝反馈。
 
-### Iteration 2：真实户型任务闭环
+### Iteration 2：真实户型任务闭环（已完成）
 
 - 签名上传、服务端文件校验与户型识别 Worker。
 - 住宅会话 API、PostgreSQL Repository 与 Outbox。
 - SSE/WS 代替前端计时模拟。
 - 预设和上传户型统一生成毛坯 `SceneManifest`。
+
+当前实现使用 PostgreSQL 事务 Outbox、NATS JetStream、MinIO/S3 签名 PUT、OpenAI Responses API 视觉理解、Python OpenCV 局部墙线吸附和 Fastify SSE。GPT 输出受严格 JSON Schema 约束；本地质量门拒绝墙体密度或拓扑异常的结果。系统不再全图执行 Hough，不再自动补四面矩形墙，也不再使用固定 8 米和固定南侧入口。识别结果归一化为 `StructuredFloorPlan`，再由 `shell-provider` 统一生成场景实体；估算比例必须保留 diagnostics。
 
 ### Iteration 3：真实装修与场景版本
 
