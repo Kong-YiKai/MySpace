@@ -2,7 +2,7 @@ import { Canvas, type ThreeEvent, useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { EditableRoomObject, WallpaperPreset } from '@spatial-intelligence/contracts';
+import type { EditableRoomObject, SceneManifest, WallpaperPreset } from '@spatial-intelligence/contracts';
 import type { ObjectColors } from '../domain/experience';
 
 interface RoomSceneProps {
@@ -13,6 +13,7 @@ interface RoomSceneProps {
   objectColors: ObjectColors;
   selectedObject: EditableRoomObject | null;
   onSelect: (objectId: EditableRoomObject | null) => void;
+  manifest?: SceneManifest | null;
   preview?: boolean;
 }
 
@@ -30,6 +31,7 @@ export function RoomScene({
   objectColors,
   selectedObject,
   onSelect,
+  manifest = null,
   preview = false,
 }: RoomSceneProps) {
   return (
@@ -57,7 +59,7 @@ export function RoomScene({
           shadow-camera-bottom={-7}
         />
         <hemisphereLight args={['#fffdf8', '#aaa297', 0.68]} />
-        <RoomShell wallpaper={wallpaper} oneBedroom={oneBedroom} />
+        <RoomShell wallpaper={wallpaper} oneBedroom={oneBedroom} manifest={manifest} immersive={immersive} />
         {decorated && (
           <Furnishings
             colors={objectColors}
@@ -72,7 +74,18 @@ export function RoomScene({
   );
 }
 
-function RoomShell({ wallpaper, oneBedroom }: { wallpaper: WallpaperPreset; oneBedroom: boolean }) {
+function RoomShell({
+  wallpaper,
+  oneBedroom,
+  manifest,
+  immersive,
+}: {
+  wallpaper: WallpaperPreset;
+  oneBedroom: boolean;
+  manifest: SceneManifest | null;
+  immersive: boolean;
+}) {
+  if (manifest) return <ManifestRoomShell manifest={manifest} wallpaper={wallpaper} immersive={immersive} />;
   const wallColor = wallpaperColors[wallpaper];
   return (
     <group>
@@ -125,6 +138,77 @@ function RoomShell({ wallpaper, oneBedroom }: { wallpaper: WallpaperPreset; oneB
       </mesh>
     </group>
   );
+}
+
+function ManifestRoomShell({
+  manifest,
+  wallpaper,
+  immersive,
+}: {
+  manifest: SceneManifest;
+  wallpaper: WallpaperPreset;
+  immersive: boolean;
+}) {
+  const floor = manifest.entities.find((entity) => entity.kind === 'floor');
+  const floorSize = primitiveOf(floor?.components)?.size ?? [10, 0.12, 8];
+  const gridSize = Math.max(Number(floorSize[0]), Number(floorSize[2])) + 8;
+  return (
+    <group>
+      <gridHelper args={[gridSize, Math.max(20, Math.round(gridSize * 2)), '#d8d1c5', '#e9e4dc']} position={[0, -0.13, 0]} />
+      {manifest.entities.map((entity) => {
+        if (!immersive && entity.kind === 'wall'
+          && (entity.label === 'wall-east' || entity.label === 'wall-south')) return null;
+        const primitive = primitiveOf(entity.components);
+        if (!primitive || primitive.shape !== 'box') return null;
+        const appearance = appearanceOf(entity.components);
+        const color = entity.kind === 'wall' ? wallpaperColors[wallpaper] : appearance.color;
+        return (
+          <mesh
+            key={entity.id}
+            castShadow={entity.kind !== 'floor'}
+            receiveShadow
+            position={entity.transform.position}
+            quaternion={entity.transform.rotation}
+            scale={entity.transform.scale}
+          >
+            <boxGeometry args={primitive.size} />
+            <meshStandardMaterial
+              color={color}
+              roughness={appearance.roughness}
+              transparent={appearance.transparent}
+              opacity={appearance.opacity}
+            />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+}
+
+function primitiveOf(components: Record<string, unknown> | undefined): {
+  shape: string;
+  size: [number, number, number];
+} | null {
+  const primitive = components?.primitive;
+  if (!primitive || typeof primitive !== 'object') return null;
+  const candidate = primitive as { shape?: unknown; size?: unknown };
+  if (candidate.shape !== 'box' || !Array.isArray(candidate.size) || candidate.size.length !== 3) return null;
+  return { shape: candidate.shape, size: candidate.size.map(Number) as [number, number, number] };
+}
+
+function appearanceOf(components: Record<string, unknown>): {
+  color: string;
+  roughness: number;
+  transparent: boolean;
+  opacity: number;
+} {
+  const candidate = (components.appearance ?? {}) as Record<string, unknown>;
+  return {
+    color: typeof candidate.color === 'string' ? candidate.color : '#f1eee6',
+    roughness: typeof candidate.roughness === 'number' ? candidate.roughness : 0.9,
+    transparent: candidate.transparent === true,
+    opacity: typeof candidate.opacity === 'number' ? candidate.opacity : 1,
+  };
 }
 
 interface SelectableProps {

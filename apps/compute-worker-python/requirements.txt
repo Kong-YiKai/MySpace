@@ -1,0 +1,7 @@
+boto3==1.40.21
+nats-py==2.11.0
+numpy==2.2.6
+opencv-python-headless==4.12.0.88
+openai==3.5.0
+Pillow==11.3.0
+python-dotenv==1.2.3

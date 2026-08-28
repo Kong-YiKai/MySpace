@@ -2,7 +2,7 @@
 
 这是一个面向住宅看房与装修决策的交互式 3D 应用：用户从预设户型或上传户型图开始，先查看毛坯空间，再通过自然语言生成装修方案、点选并修改家具，最后以第一人称沉浸看房。
 
-当前仓库的目标不是制作一组静态页面，而是先打通一条状态连续、可替换真实 AI/3D Provider 的产品骨架。
+当前仓库已经打通真实的户型上传、服务端识别、住宅会话与毛坯场景任务闭环；装修资产 Provider 仍保持可替换边界。
 
 ## 核心工作流
 
@@ -62,17 +62,54 @@ cd D:\Workplace\Project-Team\Activity\MySpace
 pnpm install
 ```
 
-如需启用 Worker 的本地 Fake Provider，可创建本地环境文件：
+创建本地环境文件，并填写服务端户型理解所需的 OpenAI API Key：
 
 ```powershell
 Copy-Item .env.example .env
+# 编辑 .env：OPENAI_API_KEY=sk-...
 ```
 
 `.env` 已被 Git 忽略，不应提交密钥或本地配置。
 
+## 一键启动与一键关闭
+
+完成首次依赖安装和 `.env` 配置后，日常开发只需要记住两个动作：
+
+| 操作 | 命令或按键 |
+| --- | --- |
+| 一键启动全部服务 | `pnpm dev` |
+| 一键关闭全部服务 | 在运行窗口按 `Ctrl+C` |
+
+### 一键启动全部服务
+
+先确认 Docker Desktop 已启动，然后在项目根目录执行：
+
+```powershell
+pnpm dev
+```
+
+统一启动器会依次完成：
+
+1. 首次运行时自动创建并安装 Python Worker 虚拟环境。
+2. 启动 PostgreSQL、NATS 与 MinIO，并等待服务就绪。
+3. 启动 Python 户型识别 Worker。
+4. 启动 Web、API 与 Generation Worker。
+
+看到 `全部服务已启动；按 Ctrl+C 可统一停止` 后，即可访问 `http://localhost:5173`。
+
+### 一键关闭全部服务
+
+在运行 `pnpm dev` 的同一个终端按一次 `Ctrl+C`。统一启动器会自动关闭：
+
+- Web、API 与 Generation Worker
+- Python 户型识别 Worker
+- PostgreSQL、NATS 与 MinIO 容器及项目网络
+
+按下后应用进程会立即退出，Docker 容器通常会在后台数秒内关闭；重新启动前请等待几秒。关闭容器不会删除 PostgreSQL、NATS、MinIO 数据卷，下次启动仍可继续使用原有数据。如果终端被强制关闭，未能执行自动清理，可补充运行 `pnpm infra:down`。
+
 ## 方式一：只启动前端
 
-当前 Web 使用本地状态模拟毛坯和装修生成。只想查看和开发页面时，不需要 Docker、API 或 Worker：
+只想查看和开发页面外观时可以单独启动 Web；上传识别、住宅会话和场景生成需要完整服务：
 
 ```powershell
 pnpm dev:web
@@ -82,30 +119,9 @@ pnpm dev:web
 
 关闭：在运行该命令的终端按 `Ctrl+C`。
 
-## 方式二：启动完整服务
+## 完整服务地址
 
-先确认 Docker Desktop 已启动。
-
-第一次运行或镜像有更新时，建议先串行拉取官方镜像并创建 `myspace/...` 本地标记，避免网络不稳定时并发下载触发 TLS 超时：
-
-```powershell
-pnpm infra:pull
-```
-
-启动 PostgreSQL、NATS 和 MinIO：
-
-```powershell
-pnpm infra:up
-pnpm infra:status
-```
-
-基础设施状态均正常后，在另一个 PowerShell 窗口启动 Web、API 和 Generation Worker：
-
-```powershell
-pnpm dev
-```
-
-默认地址：
+使用 `pnpm dev` 一键启动后的默认地址：
 
 - Web：`http://localhost:5173`
 - API：`http://localhost:3000`
@@ -120,16 +136,7 @@ pnpm dev
 pnpm infra:logs
 ```
 
-## 关闭完整服务
-
-1. 在运行 `pnpm dev` 的终端按 `Ctrl+C`，等待 Web、API 和 Worker 退出。
-2. 在项目根目录停止 Docker 基础设施：
-
-```powershell
-pnpm infra:down
-```
-
-`infra:down` 会停止并移除项目容器和网络，但保留 PostgreSQL、NATS、MinIO 的数据卷。不要追加 `-v`，除非明确需要清空本地数据。
+高级调试时仍可使用 `pnpm infra:up`、`pnpm dev:apps` 和 `pnpm dev:compute` 分别启动。手动启动基础设施后，可用 `pnpm infra:down` 单独关闭；该命令同样保留数据卷。不要追加 `-v`，除非明确需要清空本地数据。
 
 ## 常见启动问题
 
@@ -179,6 +186,23 @@ pnpm check
 pnpm test
 pnpm typecheck
 pnpm build
+pnpm test:compute
 ```
+
+在完整服务运行时验证签名上传、识别、SSE、会话、毛坯 SceneManifest 和装修任务：
+
+```powershell
+pnpm verify:iteration2
+```
+
+直接用真实图片验证两阶段 GPT 理解、OpenCV 几何吸附和拓扑质量门（无需启动 Docker）：
+
+```powershell
+pnpm verify:floor-plan-ai -- D:\path\to\floor-plan.png
+```
+
+命令从根目录 `.env` 读取 `OPENAI_API_KEY`，成功后会在被 Git 忽略的
+`artifacts/floor-plan-ai/` 中输出 `structured-floor-plan.json` 和供人工核对的
+`geometry-review-overlay.jpg`。可用 `--model gpt-5.6-sol` 对困难户型临时升级模型。
 
 详细边界、状态机、接口和开发阶段见 [工程架构与开发指南](Docs/ENGINEERING_ARCHITECTURE_AND_DEVELOPMENT_GUIDE.md)。

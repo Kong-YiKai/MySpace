@@ -3,6 +3,8 @@ coverage/
 dist/
 .pytest_cache/
 __pycache__/
+.venv/
+artifacts/
 *.log
 .env
 .DS_Store

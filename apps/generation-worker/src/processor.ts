@@ -54,6 +54,7 @@ export class GenerationProcessor {
               status,
               progress: typeof progress.progress === 'number' ? progress.progress : 0,
               providerId: typeof progress.providerId === 'string' ? progress.providerId : undefined,
+              message: typeof progress.message === 'string' ? progress.message : undefined,
             },
           });
           progressPublishes.push(this.#publisher.publish(progressEvent));
