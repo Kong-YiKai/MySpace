@@ -1,90 +1,208 @@
-# Spatial Intelligence Core
+# 潮汐防线：戴夫的空间花园
 
-这是一个纯核心框架，不包含前端页面、示例房间、固定交互或具体渲染实现。
+> 一个围绕“让 AI 看懂三维物体，并在受控空间规则中完成操作”制作的空间智能游戏原型。
 
-产品目标是把一段文字、一张图片或一段视频交给生成服务，得到结构化、可交互的真实 3D 场景；随后用户可以继续定义场景中的对象、属性、行为、事件和变化，并由运行时以可验证、可回滚的方式持续执行。
+玩家从月夜墓园进入园艺小卡车商店，购买种子与道具；在可自由移动的 3D Gaussian Splatting（3DGS）后花园里播种、浇水、收获和合成植物；最后携带植物前往 Three.js 战斗场景，抵御一波波从潮汐中出现的僵尸。
 
-## 框架边界
+这不是把大模型当作聊天装饰的 Demo：神秘种子长到青年期后，戴夫会把当前 GLB 的匿名三机位实时渲染图和带标签的视觉参考集一同交给多模态模型。模型只输出受限的视觉判断；本地状态机再依据白名单、置信度与花圃状态决定是否保留西瓜或铲除普通植株，并把神秘种子返还背包。
 
-框架负责：
+## 一览
 
-- 统一文字、图片、视频输入为 `GenerationRequest`。
-- 通过可替换 Provider 执行 3D 场景生成。
-- 将生成结果规范化为通用 `SceneManifest`。
-- 用白名单 `SceneCommand` 修改实体、组件、环境和行为。
-- 以事务、revision、undo/redo 和事件订阅管理持续变化。
-- 注册并触发用户定义的 Behavior。
-- 为渲染器、生成服务和持久化提供抽象适配器。
+| 场景 | 地址（默认开发端口） | 体验职责 | 关键技术 |
+| --- | --- | --- | --- |
+| 月夜墓园入口 | http://127.0.0.1:4173/ | 游戏开场、进入地图 | 360° 等距柱状全景图 + 内球环视 |
+| 园艺小卡车商店 / 合成台 | http://127.0.0.1:4173/ | 购买种子、肥料、植物合成 | 同一全景世界的热点与浮层 UI |
+| 戴夫的后花园 | http://127.0.0.1:5176/ | 6 个花圃锚点、种植、成长、戴夫空间巡检 | Aholo 3DGS、分块 LOD、GLB 注入、Three.js 语义层 |
+| 潮汐防线 | http://127.0.0.1:5173/ | 第一人称战斗、关卡、背包与玉米加农炮 | Three.js、第一人称控制、抛物线与波次系统 |
 
-框架不负责：
+四个页面共用同一份本地玩家档案。按 M 打开地图，按 P 暂停 / 播放当前场景音乐。首次进入各场景时，戴夫会显示一次说明；进度隔离在浏览器的本机档案中，不会把其他人的花圃或背包带到新玩家的浏览器里。
 
-- 决定产品页面、控制面板或编辑器长什么样。
-- 固定使用 React、Three.js、Unity、Unreal 或其他渲染技术。
-- 假设场景一定是房间、看房、家装或任何单一行业。
-- 内置任何案例对象、视觉预设或输入设备逻辑。
-- 在核心包中绑定 Aholo、Lux3D 或特定模型服务。
+## 先跑起来
 
-## 核心数据流
+### 环境要求
 
-```text
-Text / Image / Video
-        ↓
-GenerationRequest
-        ↓
-GenerationPipeline → Provider Adapter
-        ↓
-SceneManifest（资产、实体、组件、行为、环境）
-        ↓
-SpatialRuntime ← SceneCommand / Behavior Trigger
-        ↓
-Renderer Adapter / Persistence Adapter / Event Subscribers
-```
+- Node.js 20+（推荐当前 LTS）
+- pnpm 11（项目通过 packageManager 锁定）
+- 一张支持 WebGL 2 的显卡；3DGS 花园在独显环境体验最佳
+- 可选：一个兼容 OpenAI Chat Completions 多模态输入的模型服务，例如本地配置的 Qwen 视觉模型
 
-## 目录
+    git clone https://github.com/Kong-YiKai/MySpace.git
+    Set-Location .\MySpace
+    pnpm install
 
-```text
-src/
-  schema/       输入、Scene Manifest 和命令协议
-  generation/   Provider 注册与生成管线
-  runtime/      事务执行、revision、历史与事件
-  behavior/     用户行为处理器注册表
-  adapters/     Renderer 与 Persistence 抽象契约
-  errors/       框架错误类型
-  index.js      公共导出
-scripts/
-  check-framework.mjs
-Docs/
-  SpatialHome_AI_完整提案与开发交接_v0.2.docx
-  Spatial_Intelligence_通用框架提案与开发交接_v0.3.docx
-```
+先复制本地模型配置模板：
 
-## 使用
+    Copy-Item .env.example .env.local
 
-```bash
-pnpm install
-pnpm test
-pnpm check
-```
+打开根目录的 .env.local，只填写你自己的服务信息；该文件被 Git 忽略，绝不能提交真实密钥。
 
-框架目前没有 `dev` 或 `build` 页面命令，因为界面与渲染技术尚未确定。
+    # 可填写 …/v1，或完整的 …/v1/chat/completions 地址。
+    SPATIAL_AGENT_BASE_URL=https://your-openai-compatible-endpoint.example/v1
+    SPATIAL_AGENT_API_KEY=replace-with-your-local-key
+    SPATIAL_AGENT_MODEL=qwen3.7-flash
 
-## 全景互动 MVP（应用层）
+    # 浏览器只请求本地代理；密钥不会打包到前端。
+    SPATIAL_AGENT_PORT=8787
+    SPATIAL_AGENT_TIMEOUT_MS=45000
+    SPATIAL_AGENT_JSON_MODE=true
 
-`apps/panorama-world/` 是建立在核心框架之上的独立浏览器原型，不把具体渲染器、Aholo 或业务场景写入 `src/`。它直接读取一个符合 `SceneManifest` 的预制场景清单，使用等距柱状全景图完成环视与 HTML 热点交互。
+兼容旧命名：QWEN_BASE_URL / QWEN_API_KEY / QWEN_MODEL，以及 DASHSCOPE_* 也能被本地代理读取。若服务端不支持 response_format 的 json_object 模式，把 SPATIAL_AGENT_JSON_MODE 改为 false。
 
-```bash
-pnpm install
-pnpm dev:panorama
-```
+然后在四个终端分别启动：
 
-浏览器打开开发服务器输出的地址即可预览。首个场景使用已归档的 Aholo 生成全景底图；它验证的是“全景图先行”的 3DoF 体验，不依赖 PLY、SPZ 或高斯泼溅查看器。
+    # 终端 1：保管本地游戏档案，并把浏览器的多模态请求转发给模型服务
+    pnpm spatial-agent:dev
 
-## 扩展方式
+    # 终端 2：墓园入口 + 小卡车商店 / 合成台
+    pnpm --filter @myspace/panorama-world dev -- --host 127.0.0.1 --port 4173
 
-1. 实现 Generation Provider，把某一种生成服务的输出转成 `SceneManifest`。
-2. 实现 Renderer Adapter，把 Manifest 和变更记录映射到选定的 3D 引擎。
-3. 注册 Behavior Handler，让用户定义的触发器产生受限命令。
-4. 实现 Persistence Adapter，保存资产、Manifest、revision 与事件记录。
-5. 最后再由独立应用层决定 UI、输入设备和具体商业场景。
+    # 终端 3：3DGS 后花园
+    pnpm --filter @myspace/backyard-garden dev -- --host 127.0.0.1 --port 5176
 
-看房只是未来可建立在该框架之上的业务案例之一，与展览、培训、零售、游戏化叙事、数字孪生等场景处于同一层级。
+    # 终端 4：潮汐防线战斗
+    pnpm --filter @myspace/beach-defense dev -- --host 127.0.0.1 --port 5173
+
+打开 http://127.0.0.1:4173/，从墓园入口开始即可。模型没有配置时，花园和战斗仍可正常游玩；只有戴夫的视觉问答与神秘种子自动巡检会提示“本地空间 Agent 尚未配置”，不会伪造成功结果。
+
+### 常用验证命令
+
+    # 单元测试（含成长、共享背包、空间 Agent 协议）
+    pnpm test
+
+    # 分别构建三个前端
+    pnpm --filter @myspace/panorama-world build
+    pnpm --filter @myspace/backyard-garden build
+    pnpm --filter @myspace/beach-defense build
+
+    # 核心协议自检
+    pnpm check
+
+## 游戏流程与操作
+
+1. **墓园入口**：拖动鼠标环视，点击墓园大门或按 M 进入商店。
+2. **园艺小卡车商店**：购买豌豆种子、玉米种子、神秘种子与肥料。合成台把三株同类植物合成为更高星植物；9 个玉米投手能合成一枚玉米导弹。
+3. **后花园**：在 plot-a 到 plot-f 六个空间锚点播种。1 为白手套（收获）、2 为水壶（推进成长）、3 为铁铲（铲回未成熟植株的种子）、Tab 打开背包、Enter 和戴夫聊天。模型本身可被射线拾取，悬停时有轻量强调效果；无需依赖可见的大碰撞盒。
+4. **潮汐防线**：Tab 打开背包选择手持植物，V 检视并自动旋转模型，右键拖拽可手动转动检视模型。1 切换豌豆系、2 玉米投手、3 玉米导弹；靠近玉米加农炮并手持导弹后按 E 填装发射。J 打开已解锁关卡，K 切换波次加速。
+
+植物成长统一经过三阶段：**幼苗 → 青年期 → 成熟可领取武器**。豌豆、玉米、西瓜的青年期使用不同 GLB，避免把“模型文件名”伪装成视觉识别能力。
+
+## 赛道重点：AI 如何理解并交互三维空间
+
+### 1. 场景不是只有一张图
+
+后花园使用 Aholo 生成的 3DGS 场景作为空间底座。它负责可移动、具有视差的温室视觉；项目额外建立一个可验证的语义层：
+
+- 6 个可命名的空间锚点：plot-a ～ plot-f；
+- 每个锚点存放占用状态、位置和种植实体的父子关系；
+- Lux3D 生成的 GLB（植物、戴夫、工具）按锚点注入 3DGS 场景；
+- 相机、射线命中、背包、成长状态和战斗武器均由本地 SceneManifest + SpatialRuntime 管理。
+
+因此，AI 的回答不只是“图里有一株植物”，而能对应到明确的 entityId、花圃位置和允许执行的业务动作。
+
+### 2. 神秘种子的多视角视觉参考集
+
+神秘种子在播种时由本地状态机随机开出豌豆、玉米或稀有西瓜。到了青年期，戴夫不会读取实体的真实 speciesId 来“猜答案”：
+
+    项目青年期 GLB
+      ├─ 豌豆：圆形豌豆头 / 正面出弹口 / 卷曲叶
+      ├─ 玉米：黄色玉米穗 / 侧向投掷勺 / 苞叶
+      └─ 西瓜：深浅绿条纹瓜体 / 粗壮藤蔓 / 无出弹口
+               ↓
+    离屏 WebGL 三机位渲染（正面、左前 45°、右前 45°）
+               ↓
+    带标签的三类视觉参考集（9 图） + 未标名目标植株三机位图
+               ↓
+    Qwen 多模态模型输出严格 JSON visualAssessment
+               ↓
+    本地白名单 / 置信度 / 状态机二次校验
+               ↓
+    保留西瓜，或铲除非西瓜并返还神秘种子
+
+目标图的标签始终是“待识别神秘青年植株”；构造给模型的场景副本也会移除该目标的真实物种字段。模型看到的是模型外观和参考集，而不是答案泄露。
+
+模型只可返回以下受限判断：
+
+    {
+      "entityId": "known-plant-id",
+      "speciesId": "peaShooter | cornPult | watermelonPult",
+      "confidence": 0.0,
+      "recommendation": "keep | uproot",
+      "reason": "一条可见的形态依据"
+    }
+
+模型**没有**直接写背包、删除实体或修改花圃的权限。前端会验证实体白名单、物种枚举、推荐与物种是否一致；只有“非西瓜 + 建议铲除 + 置信度 ≥ 0.72”才调用既有的 uprootGardenPlant 状态机。低置信度时会保留植株等待复查。右上角的 DAVE · MYSTERY SEED WATCH 浮窗会显示：花圃、判定物种、置信度、可见形态理由和实际处理结果。
+
+这就是本项目对“AI 理解、重建并交互于三维空间”的具体回答：**视觉模型负责看，多机位和锚点负责给空间语境，确定性状态机负责安全执行。**
+
+### 3. 戴夫的职责边界
+
+- Enter 打开的是聊天模式：戴夫可以依据实时花园截图、模型参考图和语义场景解释植物长势、布局与外观。
+- “任务台”只提供明确按钮：播种、浇水、收获和神秘种子巡检。它们均通过种子数量、花圃空闲、成长阶段与水量校验。
+- 戴夫的台词会统一格式化为“疯话（括号内翻译）”，不会把模型 JSON、内部字段或英文状态直接暴露给玩家。
+
+## 技术架构
+
+    ┌───────────────────────────────────────┐
+    │  127.0.0.1:8787 本地空间 Agent / 存档    │
+    │  - Cookie 隔离玩家档案                    │
+    │  - 本地读取 .env.local                    │
+    │  - 转发 Qwen 多模态请求                   │
+    └───────────────┬───────────────────────┘
+                    │
+    ┌───────────────┼────────────────────────────────┐
+    │               │                                │
+    全景世界 4173    3DGS 花园 5176                   战斗 5173
+    Photo Sphere     Aholo Viewer + Three.js          Three.js
+    内球全景          分块 LOD 点云 + GLB 语义层        第一人称、投射物、波次
+    商店 / 合成 / 入口 花圃锚点 / 成长 / 戴夫            背包 / 僵尸 / 玉米炮
+    │               │                                │
+    └───────────────共享游戏状态（种子、植物、阳光、关卡）─────────────┘
+
+| 模块 | 采用方案 | 用途 |
+| --- | --- | --- |
+| 角色、植物、工具、战斗障碍物 | Lux3D 生成的 GLB | 直接注入 Three.js 语义层，成为可交互实体 |
+| 墓园与商店 | 360° 等距柱状全景图贴到球体内壁 | 低成本稳定的 3DoF 环视；热点承载交互 |
+| 后花园 | Aholo 3DGS | 用高斯泼溅取得可移动的真实空间感，并以 LOD 分块维持可用帧率 |
+| 花园 / 战斗逻辑 | SceneManifest、SpatialRuntime、共享游戏状态机 | 可验证地保存实体、锚点、成长、库存与武器 |
+| AI | OpenAI-compatible 视觉接口（已适配 Qwen） | 多机位视觉参考、实时截图分析、严格 JSON 决策 |
+
+全景场景和 3DGS 场景刻意分工：全景图只是高质量图片贴到球体内壁，适合入口和商店的环视叙事；后花园需要真正移动、锚定与放入 GLB，因此采用 3DGS 与独立语义层，不把两者混为一谈。
+
+## 目录导览
+
+    apps/
+      panorama-world/            月夜墓园 + 小卡车商店 + 合成台
+      backyard-garden/           3DGS 后花园、锚点、成长、戴夫任务台
+      beach-defense/             Three.js 潮汐战斗
+    src/
+      agent/                     多模态请求协议、Qwen 适配、受限 visualAssessment
+      gameplay/                  跨场景背包、种子、成长、合成、关卡状态机
+      runtime/                   SceneManifest 事务、revision、回滚基础能力
+      navigation/                四场景路由定义
+    scripts/
+      spatial-agent-server.mjs   本地模型代理与 Cookie 隔离玩家存档
+      lux3d-*.mjs                Lux3D 提交、状态查询、转盘图裁切工具
+
+3DGS 原始 PLY 只用于本地锚点校准，不会作为正式运行时的整包点云加载；运行时使用 apps/backyard-garden/public/assets/backyard/lod-v1/ 下的分块资源。生成阶段的输入参考图放在被 Git 忽略的 private-assets/，仓库只保留运行真正需要的成品资源。
+
+## 已做的实机验收（本地模型配置有效时）
+
+神秘种子流程已在本地页面连续实测：
+
+| 轮次 | 青年期真实模型 | Qwen 判定 | 置信度 | 状态机结果 |
+| --- | --- | --- | --- | --- |
+| 1 | 西瓜投手 | 西瓜投手；识别到条纹瓜体、卷须和叶片 | 100% | 保留继续成长 |
+| 2 | 豌豆射手 | 豌豆射手；识别到圆头与正面出弹口 | 95% | 自动铲除，神秘种子返还 |
+| 3–4 | 豌豆射手 | 豌豆射手；识别到圆头、出弹口、卷曲叶片 | 95% | 自动铲除，神秘种子返还 |
+| 5 | 玉米投手 | 玉米投手；识别到黄玉米穗与侧向投掷勺 | 95% | 自动铲除，神秘种子返还 |
+
+这是一次产品级的端到端检查，不是将分类结果硬编码到模型文件名：每次都会新建匿名目标三机位图、调用本地 Agent、渲染浮窗并通过同一套 uprootGardenPlant 状态机完成后续动作。
+
+## 当前边界与后续方向
+
+- 这是一个 48 小时原型：本地存档由 127.0.0.1:8787 服务保存，适合评审与单机演示；线上正式版应替换为鉴权后的服务端账户与数据库。
+- 3DGS 本身不是可随意编辑的网格场景。可交互 GLB 通过独立语义层注入，这使花圃、戴夫和工具可被可靠操作，也保留了对 3DGS 视觉环境的利用。
+- 模型判定是视觉建议，不是绝对真相；项目已用参考集、目标匿名化、置信度阈值和确定性状态机限制其作用范围。后续可加入更多青年期形态、人工复核与评测集。
+- 使用本地部署时请自行确认所使用模型、音乐、视觉素材的授权范围；仓库不会包含 API Key、用户存档或生成流程中的私有输入素材。
+
+如果你是评审，推荐直接从“商店 → 后花园 → 神秘种子巡检 → 潮汐防线”走一遍：它最完整地展示了这个项目从 2D 全景叙事、3DGS 空间感知，到多模态识别和受限空间操作的闭环。

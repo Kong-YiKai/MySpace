@@ -13,14 +13,28 @@
     "test:watch": "vitest",
     "check": "node ./scripts/check-framework.mjs",
     "dev:panorama": "pnpm --filter @myspace/panorama-world dev",
-    "build:panorama": "pnpm --filter @myspace/panorama-world build"
+    "build:panorama": "pnpm --filter @myspace/panorama-world build",
+    "dev:beach": "pnpm --filter @myspace/beach-defense dev",
+    "build:beach": "pnpm --filter @myspace/beach-defense build",
+    "dev:backyard": "pnpm --filter @myspace/backyard-garden dev",
+    "build:backyard": "pnpm --filter @myspace/backyard-garden build",
+    "lux3d:split-turntable": "node ./scripts/lux3d-split-turntable.mjs",
+    "lux3d:submit": "node ./scripts/lux3d-submit.mjs",
+    "lux3d:status": "node ./scripts/lux3d-status.mjs",
+    "spatial-agent:dev": "node ./scripts/spatial-agent-server.mjs",
+    "game-state:dev": "node ./scripts/spatial-agent-server.mjs"
   },
   "dependencies": {
     "zod": "4.3.6"
   },
   "devDependencies": {
+    "@manycore/aholo-sdk-lux3d": "^1.6.0",
+    "sharp": "^0.35.4",
     "vitest": "4.0.18"
   },
-  "files": ["src", "README.md"],
+  "files": [
+    "src",
+    "README.md"
+  ],
   "packageManager": "pnpm@11.19.0"
 }

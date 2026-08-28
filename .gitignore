@@ -3,4 +3,10 @@ apps/*/dist/
 coverage/
 *.log
 .env
+.env.local
+.env.*.local
+.local/
 .DS_Store
+apps/*/private-assets/
+# 原始 3DGS PLY 只供本地锚点校准；正式运行使用 public/assets/backyard/lod-v1 的 SPZ 分块。
+apps/backyard-garden/public/assets/backyard/backyard-garden-3dgs-v1.ply

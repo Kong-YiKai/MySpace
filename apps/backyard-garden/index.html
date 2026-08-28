@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#112015" />
+    <title>后花园 · 空间种植台</title>
+  </head>
+  <body class="panel-collapsed">
+    <main id="app">
+      <section class="viewer-shell" aria-label="后花园 3DGS 预览">
+        <div id="viewer" class="viewer" aria-label="可旋转的后花园三维高斯泼溅场景"></div>
+        <audio id="scene-music" preload="metadata" loop src="/assets/audio/zen-garden.mp3"></audio>
+        <section id="dave-onboarding" class="dave-onboarding" aria-label="戴夫的新手提示" hidden>
+          <article class="dave-onboarding__card" role="dialog" aria-modal="true" aria-labelledby="dave-onboarding-title">
+            <div class="dave-onboarding__portrait" aria-hidden="true"><img src="/assets/characters/crazy-dave-gardener-v1.png" alt="" /></div>
+            <div class="dave-onboarding__content">
+              <span class="eyebrow">DAVE'S FIRST WORDS</span>
+              <h2 id="dave-onboarding-title">戴夫的后花园</h2>
+              <p class="dave-onboarding__line">歪比巴布，土壤要喝水！</p>
+              <p class="dave-onboarding__copy">（点击空花圃打开种子袋，把作物种下。1、2、3 切换白手套、水壶和铁铲；成熟后用白手套收获到背包。）</p>
+              <button id="dave-onboarding-close" class="dave-onboarding__close" type="button">明白了</button>
+            </div>
+          </article>
+        </section>
+        <div id="garden-tool-viewer" class="garden-tool-viewer" aria-hidden="true"></div>
+        <div id="garden-reticle" class="garden-reticle" aria-hidden="true"><span></span></div>
+        <div id="anchor-overlay" class="anchor-overlay" aria-live="polite" hidden></div>
+        <div id="interaction-feedback" class="garden-interaction-feedback" hidden aria-live="polite"></div>
+        <aside id="dave-vision-monitor" class="dave-vision-monitor" aria-live="polite" hidden>
+          <span class="eyebrow">DAVE · MYSTERY SEED WATCH</span>
+          <strong id="dave-vision-monitor-title">戴夫正在观察青年植株</strong>
+          <p id="dave-vision-monitor-copy"></p>
+        </aside>
+        <section id="seed-bag" class="garden-seed-bag" aria-label="花圃种子袋" hidden>
+          <header class="garden-seed-bag__header">
+            <div>
+              <span class="eyebrow">SEED SATCHEL</span>
+              <h2>播种到 <strong id="seed-bag-plot">花圃</strong></h2>
+            </div>
+            <button id="seed-bag-close" type="button" aria-label="关闭种子袋">×</button>
+          </header>
+          <p>选择一包种子，戴夫会把它种在当前锚点。</p>
+          <div class="garden-seed-bag__choices">
+            <button type="button" data-quick-plant="peaShooter">
+              <img src="/assets/ui/pea-shooter-seed-packet-v1.png" alt="" />
+              <span>豌豆射手</span>
+              <em data-seed-count>×0</em>
+            </button>
+            <button type="button" data-quick-plant="cornPult">
+              <img src="/assets/ui/corn-pult-seed-packet-v2.png" alt="" />
+              <span>玉米投手</span>
+              <em data-seed-count>×0</em>
+            </button>
+            <button class="garden-seed-bag__mystery" type="button" data-quick-plant="mysterySeed">
+              <span class="garden-seed-bag__mystery-icon" aria-hidden="true">?</span>
+              <span>神秘种子</span>
+              <em data-seed-count>×0</em>
+            </button>
+          </div>
+        </section>
+        <section id="dave-guide" class="dave-guide" aria-label="花园管家戴夫">
+          <button id="dave-toggle" class="dave-guide__portrait" type="button" aria-controls="dave-dialog" aria-expanded="false">
+            <img src="/assets/characters/crazy-dave-gardener-v1.png" alt="花园管家戴夫，正向花圃招手" />
+            <span>问戴夫</span>
+          </button>
+          <p class="dave-guide__bubble">歪比巴布！花园交给我！<br />Enter 和我聊天</p>
+        </section>
+        <div class="garden-toolbelt" aria-label="花园工具快捷栏">
+          <button type="button" data-garden-tool="glove" aria-pressed="true"><kbd>1</kbd><span class="tool-icon">☝</span><strong>白手套</strong></button>
+          <button type="button" data-garden-tool="wateringCan" aria-pressed="false"><kbd>2</kbd><img src="/assets/ui/watering-can-v1.png" alt="" /><strong>水壶</strong></button>
+          <button type="button" data-garden-tool="shovel" aria-pressed="false"><kbd>3</kbd><span class="tool-icon">♠</span><strong>铁铲</strong></button>
+        </div>
+        <div id="tool-inspect-hint" class="tool-inspect-hint" hidden aria-live="polite"></div>
+        <button id="map-toggle" class="map-toggle-button" type="button" aria-controls="world-map" aria-expanded="false">世界地图 · M</button>
+        <button id="music-toggle" class="music-toggle-button" type="button" aria-pressed="true">音乐：播放 · P</button>
+        <button id="backpack-toggle" class="backpack-toggle-button" type="button" aria-controls="garden-backpack" aria-expanded="false">背包 · Tab</button>
+        <button id="focus-garden" class="focus-garden-button" type="button">回到花圃视角</button>
+        <button id="panel-toggle" class="panel-toggle-button" type="button" aria-controls="control-panel" aria-expanded="false">打开面板</button>
+        <div id="loading" class="loading-card">
+          <span class="pulse-dot"></span>
+          <div>
+            <strong>正在装载后花园点云</strong>
+            <p>57.2 万个 Gaussian splats</p>
+          </div>
+        </div>
+        <div class="viewer-hint">点击空场景锁定鼠标 · 直接点空花圃打开种子袋 · 准星对准模型后点击交互 · 1 白手套收获 · 2 水壶浇灌 · 3 铁铲铲回种子 · Tab 打开背包</div>
+      </section>
+
+      <aside id="garden-backpack" class="garden-backpack" aria-label="共享背包" hidden>
+        <header class="garden-backpack__header">
+          <div><span class="eyebrow">SHARED INVENTORY</span><h2>冒险背包</h2></div>
+          <button id="garden-backpack-close" type="button" aria-label="关闭背包">×</button>
+        </header>
+        <p id="garden-backpack-summary" class="garden-backpack__summary">正在连接本地共享背包…</p>
+        <div id="garden-backpack-contents" class="garden-backpack__contents"></div>
+      </aside>
+
+      <aside id="dave-dialog" class="dave-dialog" aria-label="与花园管家戴夫交谈" hidden>
+        <header class="dave-dialog__header">
+          <div>
+            <span class="eyebrow">GARDEN STEWARD · QWEN</span>
+            <h2>疯狂戴夫</h2>
+          </div>
+          <button id="dave-dialog-close" type="button" aria-label="关闭戴夫对话">×</button>
+        </header>
+        <div id="dave-transcript" class="dave-transcript" role="log" aria-label="与戴夫的最近对话"></div>
+        <p id="dave-reply" class="dave-dialog__reply" aria-live="polite">歪比巴布！我是花园管家。你可以问我花圃里的植物长势，或直接让我播种、浇水、收获。</p>
+        <div id="dave-quick-prompts" class="dave-quick-prompts" aria-label="戴夫常用问题">
+          <button type="button" data-dave-prompt="看看当前花圃里的植物长势，并告诉我外观上有什么特点。">看看长势</button>
+          <button type="button" data-dave-prompt="比较一下六个花圃的占用情况，建议下一株植物放在哪里。">问布局建议</button>
+          <button id="dave-open-task-station" class="dave-dialog__mode-button" type="button">打开任务台</button>
+        </div>
+        <form id="dave-form" class="dave-form">
+          <label class="sr-only" for="dave-input">对戴夫说</label>
+          <textarea id="dave-input" rows="3" maxlength="600" placeholder="例如：戴夫，看看花圃 B 的玉米投手还要多久成熟？"></textarea>
+          <button id="dave-ask" class="dave-form__submit" type="submit">问问戴夫</button>
+        </form>
+        <section class="dave-task-station" aria-label="戴夫任务台">
+          <div class="section-heading"><h3>戴夫任务台</h3><span class="demo-pill">明确派发</span></div>
+          <div id="dave-task-plots" class="dave-task-plots" role="group" aria-label="选择戴夫任务花圃"></div>
+          <p id="dave-task-summary" class="dave-task-station__summary">正在读取选中花圃…</p>
+          <div class="dave-task-station__actions">
+            <button id="dave-task-plant-pea" type="button">派戴夫种豌豆</button>
+            <button id="dave-task-plant-corn" type="button">派戴夫种玉米</button>
+            <button id="dave-task-plant-mystery" type="button">派戴夫种神秘种子</button>
+            <button id="dave-task-water" type="button">派戴夫浇水</button>
+            <button id="dave-task-harvest" type="button">派戴夫收获</button>
+          </div>
+        </section>
+        <p class="dave-dialog__hint">Enter 可打开/关闭此窗口；输入框内 Enter 正常换行。聊天只做空间与长势分析，任务台才会改变进度，并始终通过种子、空位、成熟度和水量的本地状态机核验。</p>
+      </aside>
+
+      <section id="world-map" class="world-map" aria-label="世界地图" hidden>
+        <div class="world-map__card" role="dialog" aria-modal="true" aria-labelledby="world-map-title">
+          <div class="world-map__heading">
+            <div>
+              <span class="eyebrow">世界路线 · 原型版</span>
+              <h2 id="world-map-title">选择下一处地点</h2>
+            </div>
+            <button id="map-close" class="world-map__close" type="button" aria-label="关闭世界地图">×</button>
+          </div>
+          <p>3DGS 花园、全景叙事地点和 Three.js 战斗场暂时以独立入口运行；地图负责把它们串成同一条冒险路线。</p>
+          <div id="map-destinations" class="map-destinations"></div>
+        </div>
+      </section>
+
+      <aside id="control-panel" class="control-panel">
+        <div class="eyebrow">AHOLO 3DGS · 语义层原型</div>
+        <h1>戴夫的后花园</h1>
+        <p class="lede">点云负责空间视觉；花圃、种植状态和可领取武器由独立场景状态机管理。</p>
+
+        <section class="panel-section status-row">
+          <span class="status-dot" id="viewer-status-dot"></span>
+          <span id="viewer-status">等待加载场景</span>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-heading">
+            <h2>六块种植地块</h2>
+            <span class="selection-pill">点击卡片切换</span>
+          </div>
+          <div id="plot-list" class="plot-list"></div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-heading">
+            <h2>种植实验</h2>
+            <span class="demo-pill">演示计时</span>
+          </div>
+          <p class="help-copy">初生期 15 秒 → 青春期 30 秒 → 成年期。种子由商店购买并进入共享背包；成熟后收获到同一背包。水壶可让选中的植株推进一个演示成长阶段。</p>
+          <div class="button-row">
+            <button id="plant-pea" class="primary-button" type="button">种下豌豆种子</button>
+            <button id="plant-corn" class="primary-button corn" type="button">种下玉米种子</button>
+          </div>
+          <button id="water-plant" class="watering-button" type="button"><img src="/assets/ui/watering-can-v1.png" alt="" />用水壶浇灌选中花圃</button>
+        </section>
+
+        <section class="panel-section dave-note" aria-live="polite">
+          <span class="dave-label">空间导览状态</span>
+          <p id="dave-message">先在左侧选择一块花圃。后续 Luna 只读取这份空间状态，并不替代种植与成熟判定。</p>
+        </section>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

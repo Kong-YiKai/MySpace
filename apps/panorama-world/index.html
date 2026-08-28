@@ -7,17 +7,31 @@
       name="description"
       content="MySpace 全景互动世界 MVP：预制场景、热点与可扩展 SceneManifest。"
     />
-    <title>世界之门 · 全景互动原型</title>
+    <title>月夜墓园入口 · 全景互动原型</title>
   </head>
   <body>
     <main class="experience-shell">
-      <section class="viewer-shell" aria-label="世界之门全景体验">
+      <section class="viewer-shell" aria-label="月夜墓园与园艺商店全景体验">
         <div id="viewer" aria-label="可拖动浏览的 360 度全景图"></div>
+        <audio id="scene-music" preload="metadata" loop></audio>
+
+        <section id="dave-onboarding" class="dave-onboarding" aria-label="戴夫的新手提示" hidden>
+          <article class="dave-onboarding__card" role="dialog" aria-modal="true" aria-labelledby="dave-onboarding-title">
+            <div class="dave-onboarding__portrait" aria-hidden="true"><img src="/assets/characters/crazy-dave-gardener-v1.png" alt="" /></div>
+            <div class="dave-onboarding__content">
+              <span class="eyebrow">DAVE'S FIRST WORDS</span>
+              <h2 id="dave-onboarding-title">月夜墓园入口</h2>
+              <p id="dave-onboarding-line" class="dave-onboarding__line">歪比巴布，阿喔柔！墓碑铃铛响啦！</p>
+              <p id="dave-onboarding-copy" class="dave-onboarding__copy">（这里是冒险入口。点击正前方的墓园大门，先到园艺小卡车准备种子和工具。）</p>
+              <button id="dave-onboarding-close" class="dave-onboarding__close" type="button">明白了</button>
+            </div>
+          </article>
+        </section>
 
         <div class="loading-layer" id="loading-layer" aria-live="polite">
           <div class="loading-card">
-            <span class="eyebrow">MYSPACE / SCENE 001</span>
-            <strong>正在展开世界…</strong>
+            <span class="eyebrow">MYSPACE / WORLD 001</span>
+            <strong>正在展开月夜墓园…</strong>
             <div class="progress-track" aria-hidden="true">
               <div class="progress-value" id="progress-value"></div>
             </div>
@@ -28,40 +42,80 @@
         <header class="top-bar">
           <div>
             <span class="eyebrow">预制全景互动 MVP</span>
-            <h1 id="scene-title">世界之门前厅</h1>
+            <h1 id="scene-title">月夜墓园入口</h1>
           </div>
-          <button class="ghost-button" id="recenter-button" type="button">回到入口视角</button>
+          <div class="top-bar__actions">
+            <button class="ghost-button" id="map-toggle" type="button" aria-controls="world-map" aria-expanded="false">世界地图 · M</button>
+            <button class="ghost-button" id="music-toggle" type="button" aria-pressed="true">音乐：播放 · P</button>
+            <button class="ghost-button" id="recenter-button" type="button">回到入口视角</button>
+          </div>
         </header>
+
+        <section id="world-map" class="world-map" aria-label="世界地图" hidden>
+          <div class="world-map__card" role="dialog" aria-modal="true" aria-labelledby="world-map-title">
+            <header class="world-map__heading">
+              <div>
+                <span class="eyebrow">WORLD ROUTE · MVP</span>
+                <h2 id="world-map-title">选择下一处地点</h2>
+              </div>
+              <button id="map-close" class="world-map__close" type="button" aria-label="关闭世界地图">×</button>
+            </header>
+            <p>从墓园入口补给种子，在戴夫的后花园培育植物，再到潮汐防线实战。所有地点共用同一份本地背包。</p>
+            <div class="map-destinations">
+              <button class="map-destination" type="button" data-panorama-scene="grave-gate-001">
+                <span class="map-destination__eyebrow">开场地点 · 全景</span><strong>月夜墓园入口</strong><span>穿过墓园大门，开始补给与种植路线。</span><em>进入地点</em>
+              </button>
+              <button class="map-destination" type="button" data-panorama-scene="garden-supply-shop-001">
+                <span class="map-destination__eyebrow">补给地点 · 全景</span><strong>园艺小卡车商店</strong><span>购买种子与肥料，并使用植物合成台。</span><em>进入地点</em>
+              </button>
+              <button class="map-destination" type="button" data-app-route="garden">
+                <span class="map-destination__eyebrow">3DGS 花园</span><strong>戴夫的后花园</strong><span>播种、浇灌、收获成熟植物。</span><em>进入地点</em>
+              </button>
+              <button class="map-destination" type="button" data-app-route="battle">
+                <span class="map-destination__eyebrow">正式关卡 · Three.js</span><strong>潮汐防线</strong><span>带上植物抵御潮汐中的僵尸。</span><em>进入地点</em>
+              </button>
+            </div>
+          </div>
+        </section>
 
         <aside class="scene-panel" id="scene-panel" aria-live="polite" aria-hidden="true">
           <button class="panel-close" id="panel-close" type="button" aria-label="关闭详情">×</button>
           <span class="eyebrow" id="panel-kicker">INTERACTION</span>
-          <h2 id="panel-title">欢迎来到世界之门</h2>
-          <p id="panel-copy">拖动视角，寻找发光的互动锚点。</p>
+          <h2 id="panel-title">园艺补给准备就绪</h2>
+          <p id="panel-copy">拖动环视，点击独立的小卡车资产打开补给界面。</p>
           <button class="panel-action" id="panel-action" type="button" hidden></button>
         </aside>
 
-        <aside class="guide-presence" id="guide-presence" aria-label="Grokbot 世界向导" data-open="false" data-presence="active">
-          <section class="guide-bubble" aria-live="polite">
-            <span class="eyebrow">SUBSYSTEM GUIDE</span>
-            <strong id="guide-name">Grokbot</strong>
-            <p id="guide-message">……连接正在稳定。</p>
-            <div class="guide-suggestions" id="guide-suggestions" aria-label="向导建议"></div>
-          </section>
-          <button class="guide-trigger" id="guide-trigger" type="button" aria-label="呼叫 Grokbot 世界向导" aria-expanded="false">
-            <span class="guide-avatar-shell" aria-hidden="true">
-              <svg id="guide-avatar" viewBox="-15 -15 259 259"></svg>
-            </span>
-            <span class="guide-trigger-label">呼叫向导</span>
-          </button>
+        <aside class="shop-catalog" id="shop-catalog" aria-label="戴夫的园艺补给" aria-hidden="true">
+          <header class="shop-catalog__header">
+            <div>
+              <span class="eyebrow">DAVE'S GARDEN SUPPLY</span>
+              <h2>园艺补给清单</h2>
+            </div>
+            <button class="shop-catalog__close" id="shop-catalog-close" type="button" aria-label="关闭园艺补给">×</button>
+          </header>
+          <p class="shop-catalog__intro">购买会立刻扣除阳光并进入全局背包；真正播种仍需回到后花园选择花圃。</p>
+          <div class="shop-catalog__items" id="shop-catalog-items"></div>
+          <footer class="shop-catalog__footer">
+            <span class="shop-catalog__summary" id="shop-cart-summary" aria-live="polite">待种清单为空</span>
+            <div class="shop-catalog__actions">
+              <button class="shop-catalog__clear" id="shop-clear-cart" type="button">前往后花园</button>
+              <button class="shop-catalog__clear shop-catalog__clear--battle" id="shop-battle-link" type="button">前往潮汐防线</button>
+            </div>
+          </footer>
         </aside>
 
-        <aside class="dialogue-panel" id="dialogue-panel" aria-live="polite" aria-hidden="true">
-          <button class="dialogue-close" id="dialogue-close" type="button" aria-label="结束对话">×</button>
-          <span class="eyebrow" id="dialogue-kicker">SCENE CHARACTER</span>
-          <h2 id="dialogue-speaker">守门人</h2>
-          <p id="dialogue-line">……</p>
-          <div class="dialogue-choices" id="dialogue-choices" aria-label="对话选项"></div>
+        <aside class="fusion-board" id="fusion-board" aria-label="植物合成台" aria-hidden="true">
+          <header class="fusion-board__header">
+            <div>
+              <span class="eyebrow">PLANT FUSION / LOCAL PROTOTYPE</span>
+              <h2>植物合成台</h2>
+            </div>
+            <button class="fusion-board__close" id="fusion-board-close" type="button" aria-label="关闭植物合成台">×</button>
+          </header>
+          <p class="fusion-board__intro">3 个同阶植物可合成为下一阶。材料来自后花园成熟收获，合成结果会进入全局背包并可在战斗中按 Tab 装备。</p>
+          <div class="fusion-board__inventory" id="fusion-inventory" aria-live="polite"></div>
+          <div class="fusion-board__recipes" id="fusion-recipes"></div>
         </aside>
 
         <footer class="hint-bar">
@@ -69,7 +123,7 @@
           <i></i>
           <span>滚轮缩放</span>
           <i></i>
-          <span>点击光点交互</span>
+          <span id="interaction-hint">点击小卡车互动</span>
         </footer>
       </section>
     </main>

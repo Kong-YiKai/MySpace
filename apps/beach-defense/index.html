@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="潮汐防线：MySpace 的第一人称 3D 战斗场原型。" />
+    <title>潮汐防线 · 3D 战斗场</title>
+  </head>
+  <body>
+    <main id="battle-app" aria-label="潮汐防线 3D 战斗场">
+      <canvas id="battle-canvas" aria-label="可移动和射击的三维战斗场"></canvas>
+      <audio id="scene-music" preload="metadata" loop src="/assets/audio/watery-graves.mp3"></audio>
+
+      <section id="dave-onboarding" class="dave-onboarding" aria-label="戴夫的新手提示" hidden>
+        <article class="dave-onboarding__card" role="dialog" aria-modal="true" aria-labelledby="dave-onboarding-title">
+          <div class="dave-onboarding__portrait" aria-hidden="true"><img src="/assets/characters/crazy-dave-gardener-v1.png" alt="" /></div>
+          <div class="dave-onboarding__content">
+            <span class="eyebrow">DAVE'S FIRST WORDS</span>
+            <h2 id="dave-onboarding-title">潮汐防线</h2>
+            <p class="dave-onboarding__line">阿喔柔，浪花开战！</p>
+            <p class="dave-onboarding__copy">（按 Tab 从背包装备植物，左键攻击，V 检视，J 选关。守住潮沟，别让僵尸冲进我的花园！）</p>
+            <button id="dave-onboarding-close" class="dave-onboarding__close" type="button">明白了</button>
+          </div>
+        </article>
+      </section>
+
+      <div class="screen-vignette" aria-hidden="true"></div>
+      <div class="crosshair" aria-hidden="true"><span></span></div>
+        <div class="weapon-inspection" aria-live="polite">植物检视中 · 自动转台 · 右键拖动旋转 · 按 <kbd>V</kbd> 返回战斗姿态</div>
+        <button id="world-map-toggle" class="world-map-toggle" type="button" aria-controls="world-map" aria-expanded="false">地图 · M</button>
+        <button id="music-toggle" class="music-toggle" type="button" aria-pressed="true">音乐：播放 · P</button>
+        <button id="inventory-toggle" class="inventory-toggle" type="button" aria-controls="battle-inventory" aria-expanded="false">背包 · Tab</button>
+        <button id="level-select-toggle" class="level-select-toggle" type="button" aria-controls="level-select" aria-expanded="false">选关 · J</button>
+        <button id="wave-accelerator-toggle" class="wave-accelerator-toggle" type="button" aria-pressed="false">波次加速：关 · K</button>
+        <div id="corn-cannon-prompt" class="corn-cannon-prompt" role="status" aria-live="polite" hidden>
+          <span class="corn-cannon-prompt__eyebrow">海岸设施</span>
+          <strong>玉米加农炮</strong>
+          <small>正在检查玉米导弹…</small>
+        </div>
+
+      <header class="battle-header">
+        <div>
+          <span class="eyebrow">MYSPACE / COMBAT PROTOTYPE</span>
+          <h1>潮汐防线</h1>
+        </div>
+        <div class="asset-status" aria-label="资产状态" data-state="loading">
+          <span class="asset-status__dot"></span>
+          <span id="asset-status-text">正在加载 Lux3D 场景资产</span>
+        </div>
+      </header>
+
+      <aside class="battle-hud" aria-live="polite">
+        <section class="hud-card">
+          <span class="eyebrow">防线状态</span>
+          <strong><span id="health-value">6</span> / 6</strong>
+          <div class="health-track" aria-hidden="true"><div id="health-bar"></div></div>
+        </section>
+        <section class="hud-card hud-card--enemy">
+          <span class="eyebrow">潮沟来客</span>
+          <strong id="enemy-state">靠近中</strong>
+          <small id="enemy-copy">冲浪板训练体正在推进</small>
+        </section>
+        <section class="hud-card hud-card--progress">
+          <span class="eyebrow">关卡进度</span>
+          <strong id="level-state">试潮沙滩</strong>
+          <small id="wave-state">准备第 1 波</small>
+          <small id="enemies-remaining">剩余敌人 0</small>
+        </section>
+      </aside>
+
+      <aside class="boundary-note">
+        <span class="eyebrow">真实 3D 范围</span>
+        <strong>前方防线：2</strong>
+        <span>敌方潮沟：8</span>
+      </aside>
+
+      <section id="battle-inventory" class="battle-inventory" aria-label="战斗背包" hidden>
+        <header class="battle-inventory__header">
+          <div><span class="eyebrow">SHARED INVENTORY</span><h2>选择手持植物</h2></div>
+          <button id="inventory-close" type="button" aria-label="关闭战斗背包">×</button>
+        </header>
+        <p id="inventory-summary" class="battle-inventory__summary">正在连接共享背包…</p>
+        <div id="inventory-items" class="inventory-items"></div>
+        <small>从后花园收获或在合成台升级的植物都会出现在这里。选择后立即作为当前武器。</small>
+      </section>
+
+      <section id="level-select" class="level-select" aria-label="战斗关卡选择" hidden>
+        <header class="level-select__header">
+          <div><span class="eyebrow">TIDE DEFENSE / LEVEL SELECT</span><h2>选择潮汐关卡</h2></div>
+          <button id="level-select-close" type="button" aria-label="关闭关卡选择">×</button>
+        </header>
+        <p id="level-select-summary" class="level-select__summary">第 1 关已解锁。</p>
+        <div id="level-select-items" class="level-select__items"></div>
+        <small>通关会自动保存，并解锁下一关；已通关的关卡可以随时重打。</small>
+      </section>
+
+      <section id="world-map" class="world-map" aria-label="世界地图" hidden>
+        <div class="world-map__card" role="dialog" aria-modal="true" aria-labelledby="world-map-title">
+          <header class="world-map__header">
+            <div><span class="eyebrow">WORLD ROUTE · MVP</span><h2 id="world-map-title">选择下一处地点</h2></div>
+            <button id="world-map-close" type="button" aria-label="关闭世界地图">×</button>
+          </header>
+          <p>返回墓园开场、去小卡车补给，或进入 3DGS 后花园继续培育。离开战斗场不会清空已保存的背包和关卡进度。</p>
+          <div class="world-map__destinations">
+            <button type="button" data-map-route="grave-gate"><span>开场地点 · 全景</span><strong>月夜墓园入口</strong><small>回到世界入口。</small></button>
+            <button type="button" data-map-route="shop"><span>补给地点 · 全景</span><strong>园艺小卡车商店</strong><small>购买种子、肥料与合成。</small></button>
+            <button type="button" data-map-route="garden"><span>3DGS 花园</span><strong>戴夫的后花园</strong><small>播种、浇灌和收获植物。</small></button>
+            <button type="button" data-map-route="battle" disabled><span>当前地点 · Three.js</span><strong>潮汐防线</strong><small>你正在这里守住防线。</small></button>
+          </div>
+        </div>
+      </section>
+
+      <section class="start-panel" id="start-panel" aria-hidden="false" aria-labelledby="start-title">
+        <span class="eyebrow">SCENE 001 / TIDELINE</span>
+        <h2 id="start-title">进入潮汐防线</h2>
+        <p>这是一个真实的浏览器 3D 战斗场：脚下沙地、活动边界、敌方路线和海面都在同一套坐标中。豌豆射手与冲浪僵尸将优先加载 Lux3D GLB；单个资产加载失败时，仍可用占位训练体完成射击演练。</p>
+        <button id="start-button" type="button">拿起豌豆射手</button>
+        <small>WASD 移动 · 鼠标环视 · 左键攻击 · V 自动检视 / 右键旋转 · Tab 背包换装 · J 选关 · K 波次加速 · M 世界地图 · 靠近加农炮按 E 装填 · Esc 释放鼠标</small>
+      </section>
+
+      <section class="paused-panel" id="paused-panel" aria-hidden="true">
+        <strong>已暂停瞄准</strong>
+        <button id="resume-button" type="button">继续守住防线</button>
+      </section>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
