@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createBackyardManifest, getPlotPlantYaw, PLOT_INTERACTION_FOOTPRINT } from './backyard.scene.js';
+import { createBackyardManifest, DAVE_DEFAULT_ANCHOR, getPlotPlantYaw, PLOT_INTERACTION_FOOTPRINT } from './backyard.scene.js';
 import {
   DEMO_GROWTH_DURATIONS_MS,
   GROWTH_STAGE,
@@ -25,6 +25,15 @@ describe('后花园三阶段种植系统', () => {
         expect(overlaps, `${plots[leftIndex].id} 与 ${plots[rightIndex].id} 的点击范围不能重叠`).toBe(false);
       }
     }
+  });
+
+  it('为新玩家提供温室地面上的正式戴夫锚点，不回退到旧 PLY 坐标', () => {
+    const manifest = createBackyardManifest();
+    const dave = manifest.entities.find((entity) => entity.id === 'crazy-dave-guide');
+    expect(dave.transform.position).toEqual(DAVE_DEFAULT_ANCHOR);
+    expect(DAVE_DEFAULT_ANCHOR).not.toEqual([-42, -12, 20]);
+    expect(DAVE_DEFAULT_ANCHOR[1]).toBeGreaterThan(1);
+    expect(DAVE_DEFAULT_ANCHOR[1]).toBeLessThan(2);
   });
 
   it('按种子、幼苗、成熟三个阶段推进', () => {

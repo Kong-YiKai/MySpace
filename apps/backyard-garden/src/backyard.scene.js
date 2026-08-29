@@ -43,8 +43,10 @@ export const INITIAL_PLOT_POSITIONS = {
   'plot-f': [-1.4, 1.28, 0.45],
 };
 
-// 戴夫是一个独立 GLB，不写入 3DGS 点云。该锚点可通过后花园调试面板本地校准。
-export const DAVE_DEFAULT_ANCHOR = [-42, -12, 20];
+// 戴夫是一个独立 GLB，不写入 3DGS 点云。这里是按照当前温室点云边界烘焙的
+// 正式地面锚点（温室右侧走道），而不是早期 PLY 坐标系中的 [-42, -12, 20]。
+// 本地调试面板仍可覆盖它；无痕窗口和新玩家则从这个可见的地面位置起步。
+export const DAVE_DEFAULT_ANCHOR = [1.5814271697613933, 1.384367252651644, -0.8899380607718483];
 
 export const createBackyardManifest = (plotPositions = INITIAL_PLOT_POSITIONS) => ({
   schemaVersion: '1.0',

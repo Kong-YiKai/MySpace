@@ -82,8 +82,10 @@ const GROWTH_VISUAL_ASSETS = Object.freeze({
   'corn-pult-sprout-v1': Object.freeze({
     label: '青年玉米投手',
     uri: '/assets/plants/corn-pult-sprout-v1.glb',
-    scale: 11,
-    halfHeight: 0.72,
+    // 这份 Lux GLB 原始高度为 2.5，而豌豆青年苗仅约 0.12；不能复用 scale: 11。
+    // 0.528 会将其校准到约 1.32 个场景单位高，和青年豌豆苗保持同一量级。
+    scale: 0.528,
+    halfHeight: 0.66,
   }),
   'watermelon-pult-sprout-v1': Object.freeze({
     label: '青年西瓜投手',
@@ -272,6 +274,9 @@ let ray;
 let interactionRaycaster;
 let orbit = { target: new Vector3(-8, -12, 21), radius: 148, azimuth: 0.72, elevation: -0.24 };
 let pointerState = null;
+// attachViewerControls 在 Viewer 就绪后赋予真正实现。种子袋按钮需要在同一次
+// 用户手势中调用它，才能可靠地把 UI 光标交还给第一人称十字准星。
+let requestGardenPointerLock = () => {};
 let hoveredInteractionRoot = null;
 const RETICLE_NDC = new Vector2(0, 0);
 const INTERACTION_HIT_POINT = new Vector3();
@@ -1324,7 +1329,7 @@ async function updateDaveAnchorPosition(position) {
   setDaveReply('阿喔柔！我的站位已经保存到这个花园的本地语义场景里。点击我的模型可打开任务台，按 Enter 则只打开聊天。');
 }
 
-async function plant(speciesId, plotId = selectedPlotId) {
+async function plant(speciesId, plotId = selectedPlotId, { reopenSeedBagOnFailure = false } = {}) {
   return enqueueGardenAction(async () => {
     try {
       // 操作前再读一次权威状态并恢复场景，避免旧标签页、戴夫任务台与种子袋各自
@@ -1360,6 +1365,9 @@ async function plant(speciesId, plotId = selectedPlotId) {
         : `戴夫已在 ${plot.label} 种下${resolvedSpecies.label}。` };
     } catch (error) {
       dom.daveMessage.textContent = error.message;
+      // 如果按钮已先把光标还给第一人称层，而后端拒绝了此次播种，恢复种子袋，
+      // 让玩家可以立刻换一包种子，而不是留下一个没有操作入口的空画面。
+      if (reopenSeedBagOnFailure) setSeedBagOpen(true, { plotId });
       return { ok: false, message: error.message };
     }
   });
@@ -1833,7 +1841,7 @@ function attachViewerControls() {
     const lockedElement = document.pointerLockElement;
     return lockedElement === dom.viewer || lockedElement === getPointerLockTarget();
   };
-  const requestGardenPointerLock = () => {
+  requestGardenPointerLock = () => {
     const target = getPointerLockTarget();
     if (!target?.requestPointerLock) {
       if (dom.viewerHint) dom.viewerHint.textContent = '当前浏览器没有开放鼠标锁定；请刷新后点击场景，或按住左键拖动作为临时操作。';
@@ -2166,10 +2174,18 @@ async function tickGrowth() {
 dom.plantPea.addEventListener('click', () => plant('peaShooter'));
 dom.plantCorn.addEventListener('click', () => plant('cornPult'));
 dom.waterPlant.addEventListener('click', () => waterPlantAt());
-dom.seedBagClose?.addEventListener('click', () => setSeedBagOpen(false));
+dom.seedBagClose?.addEventListener('click', () => {
+  setSeedBagOpen(false);
+  requestGardenPointerLock();
+});
 document.querySelectorAll('[data-quick-plant]').forEach((button) => {
   button.addEventListener('click', () => {
-    void plant(button.dataset.quickPlant, selectedPlotId);
+    const plotId = selectedPlotId;
+    // 先在按钮的同步 click 手势里关闭面板并请求 Pointer Lock。若等 plant() 的
+    // 异步共享存档写入完成后才请求，浏览器会丢失用户手势，留下鼠标指针和十字准星并存。
+    setSeedBagOpen(false);
+    requestGardenPointerLock();
+    void plant(button.dataset.quickPlant, plotId, { reopenSeedBagOnFailure: true });
   });
 });
 document.querySelectorAll('[data-garden-tool]').forEach((button) => {
