@@ -6,6 +6,7 @@ import { BEACH_DEFENSE_CONFIG, clampPlayerPosition } from './scene-config.js';
 import { createBattleEnvironment } from './battle-environment.js';
 import { DEFENSE_RULES, PLANT_STATS, TIDE_LEVELS, ZOMBIE_STATS } from './battle-balance.js';
 import { completeLevel, createInitialLevelProgress, isLevelUnlocked, LEVEL_PROGRESS_STORAGE_KEY, restoreLevelProgress } from './level-progression.js';
+import { estimateLobRange, getLobChargeProgress, getLobShotProfile } from './lob-charge.js';
 import { createTideMaterial, updateTideMaterial } from './ocean-material.js';
 import { getWeaponMotion } from './weapon-motion.js';
 import './styles.css';
@@ -57,7 +58,12 @@ const MODEL_CATALOG = Object.freeze({
         projectileId: 'butter',
         // 让抛射弹在最远潮沟也能落到目标高度；旧值只够飞约 10m，常在僵尸前提前落水。
         horizontalSpeed: 14.4,
+        minimumHorizontalSpeed: 5.2,
         upwardSpeed: 6.9,
+        minimumUpwardSpeed: 2.6,
+        chargeDurationMs: 980,
+        minimumDamageMultiplier: 0.58,
+        maximumDamageMultiplier: 1.55,
         aimLift: 1,
         gravity: 10.4,
         lifetime: 2.35,
@@ -79,7 +85,12 @@ const MODEL_CATALOG = Object.freeze({
         style: 'lob',
         projectileId: 'watermelon',
         horizontalSpeed: PLANT_STATS.watermelonPult.horizontalSpeed,
+        minimumHorizontalSpeed: 4.8,
         upwardSpeed: PLANT_STATS.watermelonPult.upwardSpeed,
+        minimumUpwardSpeed: 2.45,
+        chargeDurationMs: 1_100,
+        minimumDamageMultiplier: 0.62,
+        maximumDamageMultiplier: 1.45,
         aimLift: 1,
         gravity: PLANT_STATS.watermelonPult.gravity,
         lifetime: PLANT_STATS.watermelonPult.lifetime,
@@ -229,6 +240,10 @@ const waveAcceleratorToggle = document.querySelector('#wave-accelerator-toggle')
 const cornCannonPrompt = document.querySelector('#corn-cannon-prompt');
 const cornCannonPromptTitle = cornCannonPrompt?.querySelector('strong') ?? null;
 const cornCannonPromptDetail = cornCannonPrompt?.querySelector('small') ?? null;
+const lobChargeMeter = document.querySelector('#lob-charge-meter');
+const lobChargeLabel = lobChargeMeter?.querySelector('[data-lob-charge-label]') ?? null;
+const lobChargeFill = lobChargeMeter?.querySelector('[data-lob-charge-fill]') ?? null;
+const lobChargeDetail = lobChargeMeter?.querySelector('[data-lob-charge-detail]') ?? null;
 const worldMapToggle = document.querySelector('#world-map-toggle');
 const worldMap = document.querySelector('#world-map');
 const worldMapClose = document.querySelector('#world-map-close');
@@ -279,6 +294,9 @@ let isInspectRightDrag = false;
 let isInventoryOpen = false;
 let battleSettled = false;
 let lastShotAt = 0;
+let isLobCharging = false;
+let lobChargeStartedAt = 0;
+let pendingLobShotTimer = null;
 let currentLevelIndex = 0;
 let advanceLevelOnReset = false;
 let levelProgress = loadLevelProgress();
@@ -350,7 +368,7 @@ cornAimGuideGeometry.setAttribute('position', cornAimGuideAttribute);
 cornAimGuideGeometry.setDrawRange(0, 0);
 const cornAimGuide = new THREE.Line(
   cornAimGuideGeometry,
-  new THREE.LineBasicMaterial({ color: '#ffe98b', transparent: true, opacity: 0.8, depthTest: false, depthWrite: false }),
+  new THREE.LineDashedMaterial({ color: '#ffe98b', transparent: true, opacity: 0.78, dashSize: 0.18, gapSize: 0.16, depthTest: false, depthWrite: false }),
 );
 cornAimGuide.name = 'corn-pult-trajectory-guide';
 cornAimGuide.frustumCulled = false;
@@ -1389,6 +1407,80 @@ function createProjectileMesh(projectileId) {
   );
 }
 
+function getActiveLobCharge(now = performance.now()) {
+  const attack = activeWeaponModel?.attack;
+  if (attack?.style !== 'lob') return 0;
+  if (!isLobCharging) return 0;
+  return getLobChargeProgress({
+    startedAt: lobChargeStartedAt,
+    now,
+    durationMs: attack.chargeDurationMs,
+  });
+}
+
+function getActiveLobShotProfile(now = performance.now()) {
+  const attack = activeWeaponModel?.attack;
+  if (attack?.style !== 'lob') return attack;
+  return getLobShotProfile(attack, getActiveLobCharge(now));
+}
+
+function cancelLobCharge() {
+  isLobCharging = false;
+  lobChargeStartedAt = 0;
+}
+
+function cancelPendingLobShot() {
+  if (pendingLobShotTimer !== null) window.clearTimeout(pendingLobShotTimer);
+  pendingLobShotTimer = null;
+}
+
+function getLobCooldownRemaining(attack, now = performance.now()) {
+  return Math.max(0, (lastShotAt + attack.cooldownMs) - now);
+}
+
+function queueLobShot(lobCharge) {
+  const attack = activeWeaponModel?.attack;
+  if (!controls.isLocked || isInspectingWeapon || attack?.style !== 'lob') return;
+  const remaining = getLobCooldownRemaining(attack);
+  if (remaining <= 0) {
+    fireWeapon({ lobCharge });
+    return;
+  }
+
+  const weaponId = activeWeaponId;
+  cancelPendingLobShot();
+  // 蓄力过程中可能刚好还差几十毫秒冷却。松开时排入同一把武器的下一次可用帧，
+  // 避免输入已完成却被静默吞掉；重新按住则会取消这次排队。
+  pendingLobShotTimer = window.setTimeout(() => {
+    pendingLobShotTimer = null;
+    if (activeWeaponId !== weaponId || !controls.isLocked || isInspectingWeapon) return;
+    const activeAttack = activeWeaponModel?.attack;
+    if (activeAttack?.style !== 'lob') return;
+    const nextRemaining = getLobCooldownRemaining(activeAttack);
+    if (nextRemaining > 0) {
+      queueLobShot(lobCharge);
+      return;
+    }
+    fireWeapon({ lobCharge });
+  }, Math.ceil(remaining) + 12);
+}
+
+function startLobCharge() {
+  const attack = activeWeaponModel?.attack;
+  if (!controls.isLocked || isInspectingWeapon || attack?.style !== 'lob' || isLobCharging) return;
+  cancelPendingLobShot();
+  isLobCharging = true;
+  lobChargeStartedAt = performance.now();
+}
+
+function releaseLobCharge() {
+  const attack = activeWeaponModel?.attack;
+  if (!isLobCharging || attack?.style !== 'lob') return;
+  const charge = Math.max(0.12, getActiveLobCharge());
+  cancelLobCharge();
+  queueLobShot(charge);
+}
+
 function resolveLaunchVelocity(direction, attack) {
   if (attack.style !== 'lob') return direction.multiplyScalar(attack.speed);
   const horizontal = new THREE.Vector3(direction.x, 0, direction.z);
@@ -1398,12 +1490,14 @@ function resolveLaunchVelocity(direction, attack) {
   return horizontal;
 }
 
-function fireWeapon() {
-  if (!controls.isLocked || isInspectingWeapon) return;
-  if (!activeWeaponModel) return;
-  const attack = activeWeaponModel.attack;
+function fireWeapon({ lobCharge = 1 } = {}) {
+  if (!controls.isLocked || isInspectingWeapon) return false;
+  if (!activeWeaponModel) return false;
+  const attack = activeWeaponModel.attack.style === 'lob'
+    ? getLobShotProfile(activeWeaponModel.attack, lobCharge)
+    : activeWeaponModel.attack;
   const now = performance.now();
-  if (now - lastShotAt < attack.cooldownMs) return;
+  if (now - lastShotAt < attack.cooldownMs) return false;
   lastShotAt = now;
   const center = (attack.projectileCount - 1) / 2;
   for (let index = 0; index < attack.projectileCount; index += 1) {
@@ -1421,8 +1515,10 @@ function fireWeapon() {
       splashRadius: attack.splashRadius ?? 0,
       splashDamage: attack.splashDamage ?? attack.damage,
       lifetime: attack.lifetime ?? BEACH_DEFENSE_CONFIG.projectile.lifetime,
+      charge: attack.charge ?? 1,
     });
   }
+  return true;
 }
 
 function updateCornAimGuide() {
@@ -1437,15 +1533,16 @@ function updateCornAimGuide() {
   const direction = controls.getDirection(new THREE.Vector3());
   const start = camera.position.clone().addScaledVector(direction, 0.86);
   start.y -= 0.18;
-  const velocity = resolveLaunchVelocity(direction, attack);
-  const lifetime = attack.lifetime ?? BEACH_DEFENSE_CONFIG.projectile.lifetime;
+  const chargedAttack = getActiveLobShotProfile();
+  const velocity = resolveLaunchVelocity(direction, chargedAttack);
+  const lifetime = chargedAttack.lifetime ?? BEACH_DEFENSE_CONFIG.projectile.lifetime;
   let pointCount = 0;
   const lastPoint = new THREE.Vector3();
 
   for (let step = 0; step <= CORN_AIM_GUIDE_STEPS; step += 1) {
     const time = (lifetime * step) / CORN_AIM_GUIDE_STEPS;
     const x = start.x + velocity.x * time;
-    const rawY = start.y + velocity.y * time - (0.5 * attack.gravity * time * time);
+    const rawY = start.y + velocity.y * time - (0.5 * chargedAttack.gravity * time * time);
     const y = Math.max(0.045, rawY);
     const z = start.z + velocity.z * time;
     const offset = pointCount * 3;
@@ -1459,9 +1556,34 @@ function updateCornAimGuide() {
 
   cornAimGuideAttribute.needsUpdate = true;
   cornAimGuideGeometry.setDrawRange(0, pointCount);
+  cornAimGuide.computeLineDistances();
   cornAimGuide.visible = pointCount > 1;
   cornAimMarker.position.set(lastPoint.x, 0.052, lastPoint.z);
   cornAimMarker.visible = pointCount > 1;
+}
+
+function updateLobChargeMeter() {
+  const attack = activeWeaponModel?.attack;
+  const active = controls.isLocked && !isInspectingWeapon && attack?.style === 'lob';
+  if (!lobChargeMeter) return;
+  lobChargeMeter.hidden = !active;
+  if (!active) return;
+
+  const chargedAttack = getActiveLobShotProfile();
+  const charge = chargedAttack.charge ?? 0;
+  const range = estimateLobRange({
+    startHeight: Math.max(0, camera.position.y - 0.18),
+    horizontalSpeed: chargedAttack.horizontalSpeed,
+    upwardSpeed: chargedAttack.upwardSpeed,
+    gravity: chargedAttack.gravity,
+  });
+  if (lobChargeFill) lobChargeFill.style.width = `${Math.round(charge * 100)}%`;
+  if (lobChargeLabel) lobChargeLabel.textContent = isLobCharging
+    ? `蓄力 ${Math.round(charge * 100)}% · ${chargedAttack.damage} 伤害`
+    : '投手瞄准 · 短按近投';
+  if (lobChargeDetail) lobChargeDetail.textContent = isLobCharging
+    ? `预计落点 ${range.toFixed(1)}m · 松开左键投掷`
+    : `当前近投 ${range.toFixed(1)}m · 按住左键蓄力拉长轨迹`;
 }
 
 async function useCornCannon() {
@@ -1513,6 +1635,10 @@ function updateCornCannonPulse(now) {
 
 function setWeaponInspection(value) {
   isInspectingWeapon = Boolean(value && controls.isLocked && !isDefeated);
+  if (isInspectingWeapon) {
+    cancelLobCharge();
+    cancelPendingLobShot();
+  }
   if (!isInspectingWeapon) {
     inspectManualYaw = 0;
     inspectManualPitch = 0;
@@ -1753,6 +1879,8 @@ controls.addEventListener('lock', () => {
 });
 controls.addEventListener('unlock', () => {
   keys.clear();
+  cancelLobCharge();
+  cancelPendingLobShot();
   app.classList.remove('is-playing');
   setWeaponInspection(false);
   updateCornCannonUi();
@@ -1841,7 +1969,11 @@ window.addEventListener('keydown', (event) => {
   keys.add(event.code);
 });
 window.addEventListener('keyup', (event) => keys.delete(event.code));
-window.addEventListener('blur', () => keys.clear());
+window.addEventListener('blur', () => {
+  keys.clear();
+  cancelLobCharge();
+  cancelPendingLobShot();
+});
 // PointerLockControls 直接消费浏览器给出的 movementX/Y。窗口重新获得焦点、
 // 鼠标越过系统边缘时偶发的异常大 delta 会被误解为一次旋转瞬移；在捕获阶段丢弃它。
 document.addEventListener('mousemove', (event) => {
@@ -1866,9 +1998,18 @@ document.addEventListener('pointerup', (event) => {
 document.addEventListener('contextmenu', (event) => {
   if (controls.isLocked && isInspectingWeapon) event.preventDefault();
 });
-window.addEventListener('mousedown', (event) => {
-  if (event.button === 0) fireWeapon();
+window.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0) return;
+  if (event.target === canvas && Number.isInteger(event.pointerId)) {
+    try { canvas.setPointerCapture(event.pointerId); } catch { /* Pointer Lock 环境可能不支持捕获，window 监听仍会兜底。 */ }
+  }
+  if (activeWeaponModel?.attack?.style === 'lob') startLobCharge();
+  else fireWeapon();
 });
+window.addEventListener('pointerup', (event) => {
+  if (event.button === 0) releaseLobCharge();
+});
+window.addEventListener('pointercancel', () => cancelLobCharge());
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -1893,6 +2034,7 @@ renderer.setAnimationLoop(() => {
   updateCornCannonPulse(performance.now());
   updateWeaponPose(delta, elapsed);
   updateCornAimGuide();
+  updateLobChargeMeter();
   renderer.render(scene, camera);
 });
 

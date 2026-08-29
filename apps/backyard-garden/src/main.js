@@ -60,8 +60,8 @@ const LOD_TICK_INTERVAL_MS = 96;
 // Hover 只需提供即时反馈，不必和点云渲染同频。限制到 12.5Hz 可以避免准星扫过
 // Lux GLB 时与 3DGS 的高精度绘制争夺主线程。
 const HOVER_PICK_INTERVAL_MS = 80;
-const PLAYER_MOVE_SPEED = 1.45;
-const PLAYER_SPRINT_MULTIPLIER = 2.25;
+// 原来的 Shift 冲刺速度就是正常探索手感；默认直接使用它，避免长距离穿行温室过慢。
+const PLAYER_MOVE_SPEED = 3.2625;
 // Aholo Viewer 的运行时未导出该枚举，但其渲染管线稳定使用这两个模式值。
 const OUTLINE_RENDER_MODE = Object.freeze({ DEFAULT: 0, DISABLED: 1 });
 // Lux3D 输出的模型单位并不完全一致，因此每个成长阶段都在这里保留自己的场景标定。
@@ -1991,7 +1991,7 @@ function isEditableTarget(target) {
 }
 
 function isMovementCode(code) {
-  return ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'ShiftLeft', 'ShiftRight'].includes(code);
+  return ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'].includes(code);
 }
 
 function movePlayer(deltaSeconds) {
@@ -2010,7 +2010,7 @@ function movePlayer(deltaSeconds) {
   const magnitude = Math.hypot(localForward, localRight, localUp);
   if (magnitude === 0) return;
 
-  const speed = PLAYER_MOVE_SPEED * (pressedMovementKeys.has('ShiftLeft') || pressedMovementKeys.has('ShiftRight') ? PLAYER_SPRINT_MULTIPLIER : 1);
+  const speed = PLAYER_MOVE_SPEED;
   const step = (speed * deltaSeconds) / magnitude;
   orbit.target.x = clamp(orbit.target.x + (forward.x * localForward + right.x * localRight) * step, movementBounds.minX, movementBounds.maxX);
   orbit.target.z = clamp(orbit.target.z + (forward.z * localForward + right.z * localRight) * step, movementBounds.minZ, movementBounds.maxZ);
@@ -2135,7 +2135,6 @@ async function startViewer() {
     LOD_LOAD_TIMEOUT_MS,
     'LOD 首屏加载超过 35 秒。请刷新页面；若仍复现，请检查浏览器控制台的分块请求。',
   );
-  await positionUncalibratedAnchors();
   viewerReady = true;
   dom.loading.hidden = true;
   setStatus(`3DGS 后花园已就绪 · 行走与静止均保持高精度 · ${meta.tree.length} 个空间分块`, true);

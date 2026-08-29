@@ -7,6 +7,10 @@ export const PLOT_PLANT_YAWS = Object.freeze({
   'plot-f': 0,
 });
 
+// 3DGS 温室使用的是米级坐标。花圃的可点区域必须与实际土床接近，不能沿用
+// 早期 PLY 原始坐标下的 14×12 大范围，否则六个区域会彼此吞没并总是先命中 A。
+export const PLOT_INTERACTION_FOOTPRINT = Object.freeze({ width: 1.25, depth: 1.25 });
+
 const plot = (id, label, position) => ({
   id,
   label,
@@ -19,7 +23,7 @@ const plot = (id, label, position) => ({
     spatialAnchor: {
       type: 'plot',
       capacity: 1,
-      footprint: { width: 14, depth: 12 },
+      footprint: { ...PLOT_INTERACTION_FOOTPRINT },
       // A/B/C 面向与后三块相反；仅影响注入的植物模型，不移动花圃锚点。
       plantYaw: PLOT_PLANT_YAWS[id],
     },
@@ -27,15 +31,16 @@ const plot = (id, label, position) => ({
   },
 });
 
-// 初始点位是可编辑的“草稿布局”，只用作第一次打开场景的起点。
-// 每个实际落点由 anchor-editor 写入 localStorage，不改动原始 3DGS PLY。
+// 这是已烘焙进项目的正式温室布局，直接贴合画面里的六块土床。
+// 用户本地通过调试锚点工具校准过的坐标仍会被保留，但无痕/新玩家绝不再
+// 使用按场景边界均分出来的临时草稿坐标。
 export const INITIAL_PLOT_POSITIONS = {
-  'plot-a': [-28, -12, 34],
-  'plot-b': [-8, -12, 34],
-  'plot-c': [12, -12, 34],
-  'plot-d': [-28, -12, 8],
-  'plot-e': [-8, -12, 8],
-  'plot-f': [12, -12, 8],
+  'plot-a': [-5.25, 1.2, -1.95],
+  'plot-b': [-3.7, 1.2, -2.15],
+  'plot-c': [-1.75, 1.25, -1.95],
+  'plot-d': [-5.25, 1.22, 1],
+  'plot-e': [-3, 1.23, 1.35],
+  'plot-f': [-1.4, 1.28, 0.45],
 };
 
 // 戴夫是一个独立 GLB，不写入 3DGS 点云。该锚点可通过后花园调试面板本地校准。
@@ -147,7 +152,7 @@ export const createBackyardManifest = (plotPositions = INITIAL_PLOT_POSITIONS) =
   ],
   behaviors: [],
   interactions: [],
-  environment: { mode: 'garden', anchorDraft: true },
+  environment: { mode: 'garden', anchorDraft: false },
   metadata: { name: '戴夫的后花园', semanticLayer: 'garden.v1' },
 });
 

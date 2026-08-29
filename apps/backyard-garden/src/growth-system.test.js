@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createBackyardManifest, getPlotPlantYaw } from './backyard.scene.js';
+import { createBackyardManifest, getPlotPlantYaw, PLOT_INTERACTION_FOOTPRINT } from './backyard.scene.js';
 import {
   DEMO_GROWTH_DURATIONS_MS,
   GROWTH_STAGE,
@@ -12,6 +12,21 @@ import {
 } from './growth-system.js';
 
 describe('后花园三阶段种植系统', () => {
+  it('将正式花圃锚点烘焙为不重叠的米级交互范围', () => {
+    const plots = createBackyardManifest().entities.filter((entity) => entity.kind === 'spatial-anchor');
+    expect(PLOT_INTERACTION_FOOTPRINT).toEqual({ width: 1.25, depth: 1.25 });
+
+    for (let leftIndex = 0; leftIndex < plots.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < plots.length; rightIndex += 1) {
+        const [leftX, , leftZ] = plots[leftIndex].transform.position;
+        const [rightX, , rightZ] = plots[rightIndex].transform.position;
+        const overlaps = Math.abs(leftX - rightX) < PLOT_INTERACTION_FOOTPRINT.width
+          && Math.abs(leftZ - rightZ) < PLOT_INTERACTION_FOOTPRINT.depth;
+        expect(overlaps, `${plots[leftIndex].id} 与 ${plots[rightIndex].id} 的点击范围不能重叠`).toBe(false);
+      }
+    }
+  });
+
   it('按种子、幼苗、成熟三个阶段推进', () => {
     const plantedAt = 1_000;
     const growth = { stage: GROWTH_STAGE.SEED, plantedAt, stageDurationsMs: DEMO_GROWTH_DURATIONS_MS };

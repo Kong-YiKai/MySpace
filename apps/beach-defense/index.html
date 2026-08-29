@@ -18,7 +18,7 @@
             <span class="eyebrow">DAVE'S FIRST WORDS</span>
             <h2 id="dave-onboarding-title">潮汐防线</h2>
             <p class="dave-onboarding__line">阿喔柔，浪花开战！</p>
-            <p class="dave-onboarding__copy">（按 Tab 从背包装备植物，左键攻击，V 检视，J 选关。守住潮沟，别让僵尸冲进我的花园！）</p>
+            <p class="dave-onboarding__copy">（按 Tab 从背包装备植物；射手左键攻击，玉米/西瓜投手按住左键蓄力、松开投掷；V 检视，J 选关。守住潮沟，别让僵尸冲进我的花园！）</p>
             <button id="dave-onboarding-close" class="dave-onboarding__close" type="button">明白了</button>
           </div>
         </article>
@@ -26,7 +26,12 @@
 
       <div class="screen-vignette" aria-hidden="true"></div>
       <div class="crosshair" aria-hidden="true"><span></span></div>
-        <div class="weapon-inspection" aria-live="polite">植物检视中 · 自动转台 · 右键拖动旋转 · 按 <kbd>V</kbd> 返回战斗姿态</div>
+      <section id="lob-charge-meter" class="lob-charge-meter" aria-live="polite" hidden>
+        <strong data-lob-charge-label>投手瞄准 · 短按近投</strong>
+        <div class="lob-charge-meter__track" aria-hidden="true"><span data-lob-charge-fill></span></div>
+        <small data-lob-charge-detail>按住左键蓄力拉长轨迹</small>
+      </section>
+      <div class="weapon-inspection" aria-live="polite">植物检视中 · 自动转台 · 右键拖动旋转 · 按 <kbd>V</kbd> 返回战斗姿态</div>
         <button id="world-map-toggle" class="world-map-toggle" type="button" aria-controls="world-map" aria-expanded="false">地图 · M</button>
         <button id="music-toggle" class="music-toggle" type="button" aria-pressed="true">音乐：播放 · P</button>
         <button id="inventory-toggle" class="inventory-toggle" type="button" aria-controls="battle-inventory" aria-expanded="false">背包 · Tab</button>
@@ -115,7 +120,7 @@
         <h2 id="start-title">进入潮汐防线</h2>
         <p>这是一个真实的浏览器 3D 战斗场：脚下沙地、活动边界、敌方路线和海面都在同一套坐标中。豌豆射手与冲浪僵尸将优先加载 Lux3D GLB；单个资产加载失败时，仍可用占位训练体完成射击演练。</p>
         <button id="start-button" type="button">拿起豌豆射手</button>
-        <small>WASD 移动 · 鼠标环视 · 左键攻击 · V 自动检视 / 右键旋转 · Tab 背包换装 · J 选关 · K 波次加速 · M 世界地图 · 靠近加农炮按 E 装填 · Esc 释放鼠标</small>
+        <small>WASD 移动 · 鼠标环视 · 射手左键攻击 / 投手按住蓄力、松开投掷 · V 自动检视 / 右键旋转 · Tab 背包换装 · J 选关 · K 波次加速 · M 世界地图 · 靠近加农炮按 E 装填 · Esc 释放鼠标</small>
       </section>
 
       <section class="paused-panel" id="paused-panel" aria-hidden="true">
