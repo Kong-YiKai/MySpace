@@ -7,7 +7,7 @@ import {
   type ChangeEvent,
   type ReactNode,
 } from 'react';
-import { canRetrySourceVisual } from '@spatial-intelligence/contracts';
+import { canRetrySourceVisual, sceneManifestSchema, spatialAnchorSetSchema } from '@spatial-intelligence/contracts';
 import type {
   AssetGenerationJob,
   DecorationAnalysis,
@@ -27,6 +27,7 @@ import {
   type ExperienceState,
 } from './domain/experience';
 import { validateFloorPlanFile } from './domain/floorPlanValidator';
+import { validateSceneMutation } from '../../scene-service/src/spatialConstraints';
 import {
   createDecoration,
   createDecorationAnalysis,
@@ -75,6 +76,7 @@ const initialFurnitureState: FurnitureGenerationState = {
 const initialCloudEnhancementState: CloudEnhancementState = {
   status: 'idle', progress: 0, message: '', providerEvidence: null,
 };
+const publicExhibit = import.meta.env.VITE_PUBLIC_EXHIBIT === 'true';
 
 export function App() {
   const [state, dispatch] = useReducer(experienceReducer, initialExperienceState);
@@ -85,12 +87,17 @@ export function App() {
   const [preparing, setPreparing] = useState(false);
   const [furnitureEdit, setFurnitureEdit] = useState({ busy: false, message: '', undoDepth: 0 });
   const editingFurniture = useRef(false);
+  const localUndo = useRef<SceneManifest[]>([]);
   const activeOperation = useRef(new AbortController());
   const trackedCloudJob = useRef<string | null>(null);
   const qaAssetUrl = new URLSearchParams(window.location.search).get('qaAsset');
 
   useEffect(() => {
     if (qaAssetUrl) return;
+    if (publicExhibit) {
+      setCleanupReady(true);
+      return;
+    }
     const sessionId = new URLSearchParams(window.location.search).get('session');
     if (!sessionId) {
       setCleanupReady(true);
@@ -123,6 +130,19 @@ export function App() {
   const beginShell = async (source: HousingLayoutSource, name: string) => {
     dispatch({ type: 'SELECT_LAYOUT', source, name });
     try {
+      if (publicExhibit && source.kind === 'preset') {
+        const signal = activeOperation.current.signal;
+        const response = await fetch(`${import.meta.env.BASE_URL}preset-${source.preset}.json`, { signal });
+        if (!response.ok) throw new Error('示例户型加载失败，请重试。');
+        const preset = await response.json();
+        const manifest = sceneManifestSchema.parse(preset.manifest);
+        const spatialAnchors = spatialAnchorSetSchema.parse(preset.spatialAnchors);
+        signal.throwIfAborted();
+        dispatch({ type: 'SHELL_SESSION_STARTED', sessionId: manifest.sceneId, jobId: manifest.sceneId });
+        dispatch({ type: 'SHELL_READY', manifest, spatialAnchors });
+        dispatch({ type: 'SHELL_LOCKED', spatialAnchors });
+        return;
+      }
       const session = await createHousingSession(source);
       dispatch({ type: 'SHELL_SESSION_STARTED', sessionId: session.sessionId, jobId: session.shellJobId });
       await followJob(session.shellJobId, (event) => {
@@ -247,6 +267,30 @@ export function App() {
     editingFurniture.current = true;
     setFurnitureEdit((current) => ({ ...current, busy: true, message: '' }));
     try {
+      if (publicExhibit && state.spatialAnchors) {
+        let next: SceneManifest | undefined;
+        if (change) {
+          next = {
+            ...manifest,
+            revision: manifest.revision + 1,
+            entities: manifest.entities.map(entity =>
+              entity.id === change.entityId ? { ...entity, transform: change.transform } : entity),
+          };
+          validateSceneMutation(manifest, next, {
+            commandId: crypto.randomUUID(), baseRevision: manifest.revision,
+            explanation: '调整家具', requiresConfirmation: false, metadata: {},
+            commands: [{ type: 'SET_TRANSFORM', ...change }],
+          }, state.spatialAnchors);
+          localUndo.current.push(manifest);
+        } else {
+          next = localUndo.current.pop();
+        }
+        if (next) dispatch({ type: 'SCENE_UPDATED', manifest: next });
+        setFurnitureEdit({
+          busy: false, message: change ? '家具已调整' : '已撤销上一步', undoDepth: localUndo.current.length,
+        });
+        return;
+      }
       if (!state.shellLocked) {
         await lockShell(state.sessionId, signal);
         await getSceneWithRetry(manifest.sceneId, { requireAnchors: true, signal });
@@ -533,6 +577,7 @@ export function App() {
     setLayoutOnly(false);
     setPreparing(false);
     editingFurniture.current = false;
+    localUndo.current = [];
     setFurnitureEdit({ busy: false, message: '', undoDepth: 0 });
     setCleanupReady(true);
   };
@@ -813,7 +858,7 @@ function LayoutSelection({
 
         <div className="selection-divider"><span>或者</span></div>
         <label className={`upload-plan ${state.stage === 'validating-plan' ? 'is-loading' : ''}`}>
-          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={onUpload} disabled={!cleanupReady} />
+          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={onUpload} disabled={!cleanupReady || publicExhibit} />
           <span className="upload-icon"><UploadIcon /></span>
           <span>
             <strong>{state.stage === 'validating-plan' ? (state.statusText || '正在识别户型结构…') : '上传户型图或 3D 效果图'}</strong>
@@ -827,7 +872,7 @@ function LayoutSelection({
             multiple
             accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,.insv"
             onChange={onCaptureUpload}
-            disabled={!cleanupReady}
+            disabled={!cleanupReady || publicExhibit}
           />
           <span className="upload-icon"><WalkIcon /></span>
           <span>
@@ -838,10 +883,18 @@ function LayoutSelection({
         </label>
         {state.error && <p className="form-error" role="alert">{state.error}</p>}
         <p className="selection-note">
-          {cleanupReady
+          {publicExhibit
+            ? '公开展示支持示例户型。上传和云端生成需连接生成服务。'
+            : cleanupReady
             ? '上传内容会先进行户型结构校验，无关图片不会进入生成流程。'
             : '正在恢复场景，请稍候…'}
         </p>
+        {publicExhibit && (
+          <nav className="exhibit-links" aria-label="栖居展示">
+            <a href="tour.html">体验写实看房</a>
+            <a href="qiju.mp4">观看宣传片</a>
+          </nav>
+        )}
       </section>
     </main>
   );
@@ -891,7 +944,7 @@ function AssistantPanel({
           <strong>AI 设计师助手</strong>
           <small>{stageLabel}</small>
         </div>
-        <span className="online-dot" title="服务在线" />
+        {!publicExhibit && <span className="online-dot" title="服务在线" />}
       </header>
 
       <div className="assistant-body">
@@ -906,7 +959,9 @@ function AssistantPanel({
                   ? '写实资源已就绪，可以进入空间查看。'
                   : fromOriginal
                     ? '当前是估算布局。写实生成会使用你上传的原图，保留可见的户型、家具和材质作为参考。'
-                    : '户型已就绪。可直接看房，也可以添加家具。'}
+                    : publicExhibit
+                      ? '示例户型已就绪。你可以漫游或调整现有家具。'
+                      : '户型已就绪。可直接看房，也可以添加家具。'}
               </p>
             </section>
 
@@ -946,6 +1001,11 @@ function AssistantPanel({
               </button>
             )}
 
+            {publicExhibit && (
+              <a className="tool-button" href="tour.html">体验写实看房 <ArrowUpRightIcon /></a>
+            )}
+
+            {!publicExhibit && <>
             <div className="tool-row">
               <label className={`tool-button ${isBusy || state.stage !== 'shell-ready' ? 'disabled' : ''}`}>
                 <ImageIcon /> 单张装修参考图
@@ -1027,6 +1087,7 @@ function AssistantPanel({
             ))}
 
             {state.referenceBusy && <PanelProgress state={state} compact />}
+            </>}
           </>
         )}
       </div>

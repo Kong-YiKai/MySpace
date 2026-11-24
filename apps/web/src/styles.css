@@ -232,6 +232,9 @@ svg { width: 1.35rem; height: 1.35rem; display: block; }
 .upload-plan > svg { color: var(--accent); }
 
 .selection-note { margin: 12px 0 0; color: var(--soft); font-size: 11px; text-align: center; }
+.exhibit-links { display: flex; justify-content: center; gap: 20px; margin-top: 14px; font-size: 13px; }
+.exhibit-links a { color: #a4532c; text-underline-offset: 3px; }
+.upload-plan:has(input:disabled):not(.is-loading) { cursor: default; }
 .form-error { margin: 11px 0 0; padding: 10px 14px; border-radius: 12px; color: #a64f3f; background: #fff0eb; font-size: 12px; text-align: center; }
 
 /* 3D workspace */
