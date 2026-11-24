@@ -104,7 +104,7 @@ async function stopAll(code) {
     Promise.all(children.map((child) => waitForExit(child).catch(() => undefined))),
     delay(4_000),
   ]);
-  console.log('[myspace] 正在停止 PostgreSQL、NATS 与 MinIO（数据卷保留）…');
+  console.log('[myspace] 正在停止 PostgreSQL、NATS 与 RustFS（数据卷保留）…');
   let infraExitCode = 1;
   try {
     const infraResult = await waitForExit(stopInfrastructure());
@@ -123,23 +123,30 @@ async function stopAll(code) {
 async function main() {
   ensureServerConfiguration();
   await ensureComputeRuntime();
-  console.log('[myspace] 正在启动 PostgreSQL、NATS 与 MinIO…');
+  console.log('[myspace] 正在启动 PostgreSQL、NATS 与 RustFS…');
   await runOnce('infra:up');
   await Promise.all([waitForPort(5432), waitForPort(4222), waitForPort(9000)]);
 
-  console.log('[myspace] 正在启动 Python 户型识别 Worker…');
+  console.log('[myspace] 正在启动 Python 户型识别与装修参考分析 Worker…');
   const compute = runPnpm(['run', 'dev:compute'], { persistent: true });
-  const earlyComputeExit = waitForExit(compute).then((result) => {
-    throw new Error(`Python Worker 提前退出（exit ${result.code}）`);
-  });
+  const decorationCompute = runPnpm(['run', 'dev:compute:decoration'], { persistent: true });
+  const earlyComputeExit = Promise.race([
+    waitForExit(compute).then((result) => {
+      throw new Error(`Python 户型识别 Worker 提前退出（exit ${result.code}）`);
+    }),
+    waitForExit(decorationCompute).then((result) => {
+      throw new Error(`Python 装修分析 Worker 提前退出（exit ${result.code}）`);
+    }),
+  ]);
   await Promise.race([delay(1_000), earlyComputeExit]);
 
-  console.log('[myspace] 正在启动 Web、API 与 Generation Worker…');
+  console.log('[myspace] 正在启动 Web、API、场景 Generation Worker、Scene Service 与 Lux3D 资产微服务…');
   const apps = runPnpm(['run', 'dev:apps'], { persistent: true });
   console.log('[myspace] 全部服务已启动；按 Ctrl+C 可统一停止。');
 
   const outcome = await Promise.race([
     waitForExit(compute).then((result) => ({ name: 'Python Worker', ...result })),
+    waitForExit(decorationCompute).then((result) => ({ name: '装修分析 Worker', ...result })),
     waitForExit(apps).then((result) => ({ name: '应用服务', ...result })),
   ]);
   if (!stopping) {

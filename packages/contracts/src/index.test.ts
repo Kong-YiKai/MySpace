@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   decorationRequestSchema,
   floorPlanValidationResultSchema,
+  floorPlanRejectedEventSchema,
   generationRequestedEventSchema,
   housingLayoutSourceSchema,
   platformEventSchema,
@@ -47,6 +48,22 @@ describe('platform event contracts', () => {
         },
       },
     })).toThrow();
+  });
+
+  it('accepts fail-closed geometry rejection events from the floor-plan worker', () => {
+    const event = floorPlanRejectedEventSchema.parse({
+      ...metadata,
+      eventType: 'floor-plan.rejected',
+      payload: {
+        jobId: 'b9614261-b9c6-405d-8072-4e91bdb83377',
+        assetId: 'asset-floor-plan-01',
+        errorCode: 'floor_plan_geometry_mismatch',
+        errorMessage: '户型几何复核未通过',
+        confidence: 0.73,
+        retryable: false,
+      },
+    });
+    expect(platformEventSchema.parse(event).eventType).toBe('floor-plan.rejected');
   });
 });
 

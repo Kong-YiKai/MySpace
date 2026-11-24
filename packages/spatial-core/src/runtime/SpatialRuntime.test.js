@@ -43,4 +43,40 @@ describe('SpatialRuntime', () => {
     await runtime.dispatchInteraction({ inputType: 'pointer', eventType: 'activate', payload: { value: 7 } });
     expect(runtime.getManifest().entities[0].components.interactionState).toEqual({ value: 7 });
   });
+
+  it('adds a normalized provider asset and an entity in one atomic command envelope', async () => {
+    const runtime = new SpatialRuntime({ manifest });
+    await runtime.execute({
+      commandId: 'add-provider-furniture',
+      baseRevision: 0,
+      commands: [
+        {
+          type: 'ADD_ASSET',
+          asset: {
+            id: 'lux-sofa',
+            kind: 'mesh',
+            uri: 's3://spatial-assets/normalized/sofa.glb',
+            format: 'glb',
+            metadata: { providerId: 'lux3d', normalized: true },
+          },
+        },
+        {
+          type: 'ADD_ENTITY',
+          entity: { id: 'sofa', kind: 'furniture', assetRefs: ['lux-sofa'] },
+        },
+      ],
+    });
+
+    expect(runtime.getManifest().assets.at(-1)?.id).toBe('lux-sofa');
+    expect(runtime.getManifest().entities.at(-1)?.assetRefs).toEqual(['lux-sofa']);
+  });
+
+  it('refuses to remove an asset while an entity still references it', async () => {
+    const runtime = new SpatialRuntime({ manifest });
+    await expect(runtime.execute({
+      commandId: 'remove-in-use-asset',
+      baseRevision: 0,
+      commands: [{ type: 'REMOVE_ASSET', assetId: 'asset-1' }],
+    })).rejects.toMatchObject({ code: 'asset_in_use' });
+  });
 });

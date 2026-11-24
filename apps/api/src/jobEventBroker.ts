@@ -22,6 +22,7 @@ export class JobEventBroker implements JobEventListener {
 }
 
 export function jobIdOf(event: PlatformEvent): string | null {
-  if (event.eventType === 'scene.revision-created') return null;
-  return event.payload.jobId;
+  return 'jobId' in event.payload && typeof event.payload.jobId === 'string'
+    ? event.payload.jobId
+    : null;
 }

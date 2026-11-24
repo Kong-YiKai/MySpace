@@ -30,7 +30,12 @@ export class NatsJobProjector {
     repository: PlatformRepository,
     events: JobEventListener,
   ): Promise<NatsJobProjector> {
-    const connection = await connect({ servers, name: 'spatial-api-job-projector' });
+    const connection = await connect({
+      servers,
+      name: 'spatial-api-job-projector',
+      maxReconnectAttempts: -1,
+      reconnectTimeWait: 1_000,
+    });
     await ensurePlatformStream(connection);
     const manager = await jetstreamManager(connection);
     try {
@@ -62,13 +67,24 @@ export class NatsJobProjector {
     const consumer = await jetstream(this.#connection).consumers.get(PLATFORM_STREAM, PROJECTOR_CONSUMER);
     this.#messages = await consumer.consume({ max_messages: 128 });
     for await (const message of this.#messages) {
-      const parsed = platformEventSchema.safeParse(message.json());
+      const rawEvent = message.json();
+      const parsed = platformEventSchema.safeParse(rawEvent);
       if (!parsed.success) {
+        const candidate = rawEvent as { eventType?: unknown; payload?: { jobId?: unknown; errorCode?: unknown } };
+        console.error(JSON.stringify({
+          event: 'platform-event-rejected',
+          eventType: candidate.eventType,
+          jobId: candidate.payload?.jobId,
+          errorCode: candidate.payload?.errorCode,
+          issues: parsed.error.issues,
+        }));
         message.term('invalid platform event');
         continue;
       }
       if (parsed.data.eventType !== 'generation.requested'
-        && parsed.data.eventType !== 'floor-plan.validation-requested') {
+        && parsed.data.eventType !== 'floor-plan.validation-requested'
+        && parsed.data.eventType !== 'decoration-analysis.requested'
+        && parsed.data.eventType !== 'asset-generation.requested') {
         await this.#repository.apply(parsed.data);
         this.#events.publish(parsed.data);
       }

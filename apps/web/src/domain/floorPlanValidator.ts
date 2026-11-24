@@ -29,11 +29,14 @@ export async function validateFloorPlanFile(file: File): Promise<FloorPlanScore>
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     bitmap.close();
 
-    return scoreFloorPlanPixels(
+    const score = scoreFloorPlanPixels(
       context.getImageData(0, 0, canvas.width, canvas.height).data,
       canvas.width,
       canvas.height,
     );
+    // Perspective renders can lack the white background of line drawings.
+    // The worker classifies the image and rejects unrelated photos.
+    return score.accepted ? score : { accepted: true, confidence: score.confidence };
   } catch {
     return { accepted: false, confidence: 0, reason: '图片无法读取，请检查文件是否损坏。' };
   }

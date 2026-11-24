@@ -1,21 +1,17 @@
 import type {
-  EditableRoomObject,
-  HousingExperienceStage,
   HousingLayoutSource,
-  WallpaperPreset,
+  HousingSession,
   SceneManifest,
+  DecorationAnalysis,
+  SpatialAnchorSet,
 } from '@spatial-intelligence/contracts';
 
-export type ObjectColors = Record<EditableRoomObject, string>;
-
 export interface ExperienceState {
-  stage: HousingExperienceStage;
+  stage: 'layout-selection' | 'validating-plan' | 'shell-generating' | 'shell-ready';
+  immersive: boolean;
   layoutSource: HousingLayoutSource | null;
   layoutName: string;
   brief: string;
-  wallpaper: WallpaperPreset;
-  selectedObject: EditableRoomObject | null;
-  objectColors: ObjectColors;
   progress: number;
   statusText: string;
   error: string | null;
@@ -23,24 +19,27 @@ export interface ExperienceState {
   sessionId: string | null;
   shellJobId: string | null;
   manifest: SceneManifest | null;
+  shellLocked: boolean;
+  referenceAssetId: string | null;
+  decorationAnalysis: DecorationAnalysis | null;
+  spatialAnchors: SpatialAnchorSet | null;
+  referenceBusy: boolean;
 }
-
 export type ExperienceAction =
   | { type: 'VALIDATE_PLAN' }
   | { type: 'SELECT_LAYOUT'; source: HousingLayoutSource; name: string }
   | { type: 'SHELL_SESSION_STARTED'; sessionId: string; jobId: string }
+  | { type: 'RESTORE_SESSION'; session: HousingSession; name: string; manifest: SceneManifest }
   | { type: 'SHELL_PROGRESS'; progress: number; message: string }
-  | { type: 'SHELL_READY'; manifest?: SceneManifest }
+  | { type: 'SHELL_READY'; manifest?: SceneManifest; spatialAnchors?: SpatialAnchorSet }
+  | { type: 'SHELL_LOCKED'; spatialAnchors: SpatialAnchorSet }
+  | { type: 'REFERENCE_PROGRESS'; progress: number; message: string; name?: string }
+  | { type: 'REFERENCE_READY'; assetId: string | null; analysis: DecorationAnalysis }
+  | { type: 'REFERENCE_FAILED'; message: string }
   | { type: 'PLAN_REJECTED'; message: string }
   | { type: 'SET_BRIEF'; brief: string }
-  | { type: 'SET_WALLPAPER'; wallpaper: WallpaperPreset }
   | { type: 'SET_ATTACHMENT'; name: string | null }
-  | { type: 'START_DECORATION' }
-  | { type: 'DECOR_PROGRESS'; progress: number; message: string }
-  | { type: 'DECOR_READY' }
-  | { type: 'DECOR_FAILED'; message: string }
-  | { type: 'SELECT_OBJECT'; objectId: EditableRoomObject | null }
-  | { type: 'SET_OBJECT_COLOR'; objectId: EditableRoomObject; color: string }
+  | { type: 'SCENE_UPDATED'; manifest: SceneManifest }
   | { type: 'ENTER_IMMERSIVE' }
   | { type: 'EXIT_IMMERSIVE' }
   | { type: 'RESET' };
@@ -49,19 +48,10 @@ export const defaultBrief = '现代奶油风，温馨治愈，需要一张舒适
 
 export const initialExperienceState: ExperienceState = {
   stage: 'layout-selection',
+  immersive: false,
   layoutSource: null,
   layoutName: '',
   brief: defaultBrief,
-  wallpaper: 'cream-white',
-  selectedObject: null,
-  objectColors: {
-    sofa: '#d8cbb9',
-    'coffee-table': '#9b8f87',
-    rug: '#e6d9c6',
-    vase: '#e9a597',
-    plant: '#78917d',
-    'floor-lamp': '#d7c2a1',
-  },
   progress: 0,
   statusText: '',
   error: null,
@@ -69,6 +59,11 @@ export const initialExperienceState: ExperienceState = {
   sessionId: null,
   shellJobId: null,
   manifest: null,
+  shellLocked: false,
+  referenceAssetId: null,
+  decorationAnalysis: null,
+  spatialAnchors: null,
+  referenceBusy: false,
 };
 
 export function experienceReducer(
@@ -98,6 +93,20 @@ export function experienceReducer(
       return { ...state, progress: action.progress, statusText: action.message };
     case 'SHELL_SESSION_STARTED':
       return { ...state, sessionId: action.sessionId, shellJobId: action.jobId };
+    case 'RESTORE_SESSION':
+      return {
+        ...state,
+        stage: 'shell-ready',
+        layoutName: action.name,
+        layoutSource: action.session.source,
+        sessionId: action.session.sessionId,
+        shellJobId: action.session.shellJobId,
+        shellLocked: action.session.shellLocked,
+        spatialAnchors: action.session.spatialAnchors ?? null,
+        manifest: action.manifest,
+        progress: 100,
+        error: null,
+      };
     case 'SHELL_READY':
       return {
         ...state,
@@ -105,6 +114,47 @@ export function experienceReducer(
         progress: 100,
         statusText: '毛坯空间已就绪',
         manifest: action.manifest ?? state.manifest,
+        spatialAnchors: action.spatialAnchors ?? state.spatialAnchors,
+      };
+    case 'SHELL_LOCKED':
+      return {
+        ...state,
+        shellLocked: true,
+        spatialAnchors: action.spatialAnchors,
+        statusText: '毛坯空间已锁定',
+        error: null,
+      };
+    case 'REFERENCE_PROGRESS':
+      return {
+        ...state,
+        referenceBusy: true,
+        progress: action.progress,
+        statusText: action.message,
+        attachmentName: action.name ?? state.attachmentName,
+        decorationAnalysis: null,
+        referenceAssetId: null,
+        error: null,
+      };
+    case 'REFERENCE_READY':
+      return {
+        ...state,
+        referenceBusy: false,
+        progress: 100,
+        statusText: action.analysis.sourceKind === 'image'
+          ? '参考图风格已提取'
+          : '文字需求已整理',
+        referenceAssetId: action.assetId,
+        decorationAnalysis: action.analysis,
+        error: action.analysis.sourceKind !== 'image' || action.analysis.style.realism === 'photorealistic'
+          ? null : '参考图未通过照片级写实质量门，请更换真实照片或可信写实渲染图。',
+      };
+    case 'REFERENCE_FAILED':
+      return {
+        ...state,
+        referenceBusy: false,
+        progress: 0,
+        statusText: '',
+        error: action.message,
       };
     case 'PLAN_REJECTED':
       return {
@@ -116,61 +166,27 @@ export function experienceReducer(
       };
     case 'SET_BRIEF':
       return { ...state, brief: action.brief };
-    case 'SET_WALLPAPER':
-      return { ...state, wallpaper: action.wallpaper };
     case 'SET_ATTACHMENT':
-      return { ...state, attachmentName: action.name };
-    case 'START_DECORATION':
-      return {
-        ...state,
-        stage: 'brief-analyzing',
-        selectedObject: null,
-        progress: 8,
-        statusText: 'AI 正在理解采光、动线与风格要求…',
-        error: null,
-      };
-    case 'DECOR_PROGRESS':
-      return {
-        ...state,
-        stage: action.progress >= 32 ? 'decor-generating' : state.stage,
-        progress: action.progress,
-        statusText: action.message,
-      };
-    case 'DECOR_READY':
-      return {
-        ...state,
-        stage: 'decorated',
-        progress: 100,
-        statusText: '装修方案已生成，可以点选物体继续修改',
-      };
-    case 'DECOR_FAILED':
-      return {
-        ...state,
-        stage: 'shell-ready',
-        progress: 0,
-        statusText: '',
-        error: action.message,
-      };
-    case 'SELECT_OBJECT':
-      return { ...state, selectedObject: action.objectId };
-    case 'SET_OBJECT_COLOR':
-      return {
-        ...state,
-        objectColors: { ...state.objectColors, [action.objectId]: action.color },
-      };
+      return action.name === null
+        ? {
+            ...state,
+            attachmentName: null,
+            referenceAssetId: null,
+            decorationAnalysis: state.decorationAnalysis?.sourceKind === 'image'
+              ? null : state.decorationAnalysis,
+          }
+        : { ...state, attachmentName: action.name };
+    case 'SCENE_UPDATED':
+      return state.manifest && action.manifest.revision < state.manifest.revision
+        ? state
+        : { ...state, manifest: action.manifest };
     case 'ENTER_IMMERSIVE':
-      return { ...state, stage: 'immersive', selectedObject: null };
+      return { ...state, immersive: true };
     case 'EXIT_IMMERSIVE':
-      return { ...state, stage: 'decorated' };
+      return { ...state, immersive: false };
     case 'RESET':
       return initialExperienceState;
     default:
       return state;
   }
-}
-
-export function isDecorVisible(stage: HousingExperienceStage, progress: number): boolean {
-  return stage === 'decorated' || stage === 'immersive' || (
-    stage === 'decor-generating' && progress >= 55
-  );
 }

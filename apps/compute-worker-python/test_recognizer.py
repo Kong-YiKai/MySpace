@@ -82,15 +82,6 @@ def understanding() -> dict:
     }
 
 
-def approved_review() -> dict:
-    return {
-        "approved": True,
-        "confidence": 0.88,
-        "summary": "墙体、房间关系和右侧入户位置与原图一致",
-        "criticalIssues": [],
-    }
-
-
 class FakeResponses:
     def __init__(self, *payloads: dict) -> None:
         self.payloads = list(payloads)
@@ -112,7 +103,7 @@ class RecognizerTests(unittest.TestCase):
         cv2.rectangle(self.image, (100, 80), (730, 940), (20, 20, 20), 16)
 
     def test_uses_gpt_semantics_then_builds_validated_geometry(self) -> None:
-        client = FakeClient(understanding(), approved_review())
+        client = FakeClient(understanding())
         progress = []
         plan = recognize_floor_plan(
             self.image,
@@ -127,38 +118,72 @@ class RecognizerTests(unittest.TestCase):
         self.assertEqual(plan["entrance"]["direction"], [-1.0, 0.0])
         self.assertEqual([room["label"] for room in plan["rooms"]], ["主卧", "客厅"])
         self.assertFalse(any(wall["id"] == "wall-south" for wall in plan["walls"]))
-        self.assertEqual(plan["diagnostics"]["reviewConfidence"], 0.88)
-        self.assertEqual(len(client.responses.requests), 2)
+        self.assertEqual(len(client.responses.requests), 1)
         self.assertFalse(client.responses.requests[0]["store"])
         self.assertEqual(client.responses.requests[0]["text"]["format"]["type"], "json_schema")
         self.assertTrue(client.responses.requests[0]["input"][0]["content"][1]["image_url"].startswith("data:image/jpeg;base64,"))
-        self.assertEqual(len(client.responses.requests[1]["input"][0]["content"]), 3)
-        self.assertEqual([item[0] for item in progress], ["geometry-refining", "gpt-reviewing"])
-        self.assertEqual([item[1] for item in progress], [0.58, 0.72])
+        self.assertEqual([item[0] for item in progress], ["geometry-refining"])
+        self.assertEqual([item[1] for item in progress], [0.58])
 
-    def test_rejects_when_gpt_cannot_form_a_trustworthy_plan(self) -> None:
+    def test_recognized_floor_plan_is_generated_even_when_geometry_confidence_is_low(self) -> None:
         payload = understanding()
         payload["shouldReject"] = True
-        payload["rejectionReason"] = "图片不是完整住宅户型图"
+        payload["rejectionReason"] = "部分边界需要估算"
+        plan = recognize_floor_plan(self.image, client=FakeClient(payload))
+        self.assertEqual(plan["diagnostics"]["planType"], "decorated_floor_plan")
+        self.assertIn("部分边界需要估算", plan["diagnostics"]["warnings"])
+
+    def test_rejects_only_when_ai_classifies_image_as_not_a_floor_plan(self) -> None:
+        payload = understanding()
+        payload["planType"] = "not_floor_plan"
+        payload["rejectionReason"] = "图片不是住宅户型图"
         with self.assertRaises(RecognitionError) as context:
             recognize_floor_plan(self.image, client=FakeClient(payload))
         self.assertEqual(context.exception.code, "low_plan_confidence")
 
-    def test_second_gpt_review_marks_confirmation_instead_of_rejecting_normal_plan(self) -> None:
-        review = approved_review()
-        review["approved"] = False
-        review["confidence"] = 0.93
-        review["summary"] = "检测到家具边缘被错误拉伸为墙体"
-        review["criticalIssues"] = ["客厅家具被识别为墙"]
-        plan = recognize_floor_plan(self.image, client=FakeClient(understanding(), review))
-        self.assertFalse(plan["diagnostics"]["reviewApproved"])
-        self.assertTrue(plan["diagnostics"]["requiresUserConfirmation"])
-        self.assertIn("客厅家具被识别为墙", plan["diagnostics"]["reviewCriticalIssues"])
+    def test_invalid_bounds_fall_back_to_the_whole_floor_plan_image(self) -> None:
+        payload = understanding()
+        payload["bounds"] = {"left": 500, "top": 500, "right": 510, "bottom": 510}
+        plan = recognize_floor_plan(self.image, client=FakeClient(payload))
+        self.assertEqual(plan["diagnostics"]["sourceBoundsNormalized"], {
+            "left": 0, "top": 0, "right": 1000, "bottom": 1000,
+        })
+
+    def test_missing_room_partitions_still_generate_a_residential_space(self) -> None:
+        payload = understanding()
+        payload["rooms"] = []
+        plan = recognize_floor_plan(self.image, client=FakeClient(payload))
+        self.assertEqual(plan["rooms"][0]["id"], "residential-space")
+
+    def test_recovers_missing_rooms_and_keeps_the_stair_landing_and_furniture(self) -> None:
+        weak = understanding()
+        weak["walls"] *= 2
+        weak["rooms"] = []
+        weak["openings"] = []
+        strong = understanding()
+        strong["entrance"].update({
+            "kind": "stair-landing", "wallId": "", "position": point(500, 450),
+        })
+        strong["rooms"].append({
+            "id": "stairs", "kind": "stairs", "label": "楼梯间", "confidence": 0.95,
+            "polygon": [point(505, 180), point(670, 180), point(670, 415), point(505, 415)],
+        })
+        strong["furnitureHints"] = [{
+            "kind": "bed", "position": point(300, 660), "direction": {"x": 0, "y": 1},
+            "confidence": 0.96,
+        }]
+        client = FakeClient(weak, strong)
+        with patch.dict(os.environ, {"FLOOR_PLAN_VISION_MODEL": "primary", "FLOOR_PLAN_FALLBACK_MODEL": "fallback"}):
+            plan = recognize_floor_plan(self.image, client=client)
+        self.assertEqual([item["model"] for item in client.responses.requests], ["primary", "fallback"])
+        self.assertEqual(plan["entrance"]["kind"], "stair-landing")
+        self.assertEqual(plan["furnitureHints"][0]["kind"], "bed")
+        self.assertFalse(any(opening["id"].startswith("inferred-entrance") for opening in plan["openings"]))
 
     def test_open_exterior_wall_loop_becomes_warning_after_gpt_accepts_plan(self) -> None:
         payload = understanding()
         payload["walls"] = [wall for wall in payload["walls"] if wall["id"] != "exterior-west"]
-        plan = recognize_floor_plan(self.image, client=FakeClient(payload, approved_review()))
+        plan = recognize_floor_plan(self.image, client=FakeClient(payload))
         self.assertEqual(plan["diagnostics"]["admissionDecision"], "gpt-semantic")
         self.assertTrue(any("外轮廓" in warning for warning in plan["diagnostics"]["topologyWarnings"]))
 
@@ -189,14 +214,14 @@ class RecognizerTests(unittest.TestCase):
         payload["openings"][0]["centerOffset"] = 1.0
         payload["entrance"]["wallId"] = "exterior-east-upper"
         payload["entrance"]["position"] = point(880, 430)
-        plan = recognize_floor_plan(self.image, client=FakeClient(payload, approved_review()))
+        plan = recognize_floor_plan(self.image, client=FakeClient(payload))
         self.assertEqual(plan["diagnostics"]["exteriorOpenEndpointCount"], 2)
         self.assertGreater(plan["diagnostics"]["exteriorPerimeterCoverage"], 0.72)
 
     def test_infers_entrance_door_when_gpt_does_not_link_an_opening(self) -> None:
         payload = understanding()
         payload["openings"] = []
-        plan = recognize_floor_plan(self.image, client=FakeClient(payload, approved_review()))
+        plan = recognize_floor_plan(self.image, client=FakeClient(payload))
         self.assertTrue(any(opening["id"] == "inferred-entrance-door" for opening in plan["openings"]))
         self.assertTrue(any("门洞" in warning for warning in plan["diagnostics"]["entranceWarnings"]))
 
@@ -205,7 +230,7 @@ class RecognizerTests(unittest.TestCase):
         payload["rooms"][0]["polygon"] = [
             point(130, 500), point(420, 900), point(130, 900), point(420, 500),
         ]
-        plan = recognize_floor_plan(self.image, client=FakeClient(payload, approved_review()))
+        plan = recognize_floor_plan(self.image, client=FakeClient(payload))
         self.assertEqual([room["label"] for room in plan["rooms"]], ["客厅"])
         self.assertTrue(any("边界异常" in warning for warning in plan["diagnostics"]["semanticWarnings"]))
 

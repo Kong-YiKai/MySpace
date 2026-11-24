@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import { behaviorSchema, entitySchema, transformSchema } from './sceneManifest.schema.js';
+import { assetSchema, behaviorSchema, entitySchema, transformSchema } from './sceneManifest.schema.js';
 
+const addAssetCommand = z.object({ type: z.literal('ADD_ASSET'), asset: assetSchema });
+const removeAssetCommand = z.object({ type: z.literal('REMOVE_ASSET'), assetId: z.string().min(1) });
 const addEntityCommand = z.object({ type: z.literal('ADD_ENTITY'), entity: entitySchema });
 const removeEntityCommand = z.object({
   type: z.literal('REMOVE_ENTITY'),
@@ -47,6 +49,8 @@ const setEnvironmentCommand = z.object({
 });
 
 export const sceneCommandSchema = z.discriminatedUnion('type', [
+  addAssetCommand,
+  removeAssetCommand,
   addEntityCommand,
   removeEntityCommand,
   setTransformCommand,

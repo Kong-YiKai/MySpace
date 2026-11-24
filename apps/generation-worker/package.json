@@ -11,6 +11,9 @@
     "test": "vitest run --exclude 'dist/**'"
   },
   "dependencies": {
+    "@manycore/aholo-sdk-asset": "1.2.0",
+    "@manycore/aholo-sdk-core": "1.2.0",
+    "@manycore/aholo-sdk-world": "1.3.0",
     "@nats-io/jetstream": "^3.4.0",
     "@nats-io/transport-node": "3.4.0",
     "@spatial-intelligence/contracts": "workspace:*",

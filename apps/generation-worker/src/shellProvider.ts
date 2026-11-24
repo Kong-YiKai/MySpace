@@ -1,4 +1,5 @@
 import { structuredFloorPlanSchema, type StructuredFloorPlan } from '@spatial-intelligence/contracts';
+import { buildBasicFurniture } from './basicFurniture.js';
 
 interface Entity {
   id: string;
@@ -24,8 +25,8 @@ export const shellProvider = {
   ) => {
     const plan = structuredFloorPlanSchema.parse(request.requirements.floorPlan);
     context.onProgress({ stage: 'generating', progress: 0.36, message: '正在建立地面与房间边界…' });
-    const entities = buildShellEntities(plan);
-    context.onProgress({ stage: 'generating', progress: 0.72, message: '正在生成墙体、门窗与入口锚点…' });
+    const entities = [...buildShellEntities(plan), ...buildBasicFurniture(plan)];
+    context.onProgress({ stage: 'generating', progress: 0.72, message: '正在生成墙体、门窗与基础家具…' });
 
     return {
       schemaVersion: '1.0',
@@ -128,7 +129,7 @@ export function buildShellEntities(plan: StructuredFloorPlan): Entity[] {
 
   entities.push({
     id: 'entrance-anchor',
-    label: '户型入口',
+    label: plan.entrance.kind === 'stair-landing' ? '楼梯平台入口' : '户型入口',
     kind: 'anchor',
     transform: identity([plan.entrance.position[0] - centerX, 0, plan.entrance.position[1] - centerZ]),
     components: { direction: { value: plan.entrance.direction } },

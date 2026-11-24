@@ -55,6 +55,24 @@ export class SpatialRuntime {
     const command = sceneCommandSchema.parse(rawCommand);
 
     switch (command.type) {
+      case 'ADD_ASSET': {
+        if (manifest.assets.some((asset) => asset.id === command.asset.id)) {
+          throw new FrameworkError('asset_exists', `Asset already exists: ${command.asset.id}`);
+        }
+        manifest.assets.push(clone(command.asset));
+        break;
+      }
+      case 'REMOVE_ASSET': {
+        const referenced = manifest.entities.find((entity) => entity.assetRefs.includes(command.assetId));
+        if (referenced) {
+          throw new FrameworkError('asset_in_use', `Asset ${command.assetId} is used by entity ${referenced.id}`);
+        }
+        if (!manifest.assets.some((asset) => asset.id === command.assetId)) {
+          throw new FrameworkError('asset_missing', `Asset not found: ${command.assetId}`);
+        }
+        manifest.assets = manifest.assets.filter((asset) => asset.id !== command.assetId);
+        break;
+      }
       case 'ADD_ENTITY': {
         if (manifest.entities.some((entity) => entity.id === command.entity.id)) {
           throw new FrameworkError('entity_exists', `Entity already exists: ${command.entity.id}`);

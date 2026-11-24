@@ -11,20 +11,33 @@ import {
   type PlatformEvent,
 } from '@spatial-intelligence/contracts';
 import { GenerationPipeline, ProviderRegistry } from '@spatial-intelligence/core';
+import { createAholoWorldProvider } from './aholoWorldProvider.js';
 import { GenerationProcessor } from './processor.js';
 import { shellProvider } from './shellProvider.js';
 
 const STREAM = 'MYSPACE_EVENTS';
 const CONSUMER = 'generation-workers';
 const natsUrl = process.env.NATS_URL ?? 'nats://127.0.0.1:4222';
-const connection = await connect({ servers: natsUrl, name: 'generation-worker' });
+const connection = await connect({
+  servers: natsUrl,
+  name: 'generation-worker',
+  maxReconnectAttempts: -1,
+  reconnectTimeWait: 1_000,
+});
 const manager = await jetstreamManager(connection);
 try {
-  await manager.streams.info(STREAM);
+  const info = await manager.streams.info(STREAM);
+  const subjects = ['generation.*.v1', 'floor-plan.*.v1', 'decoration-analysis.*.v1', 'asset-generation.*.v1', 'scene.*.v1'];
+  if (!subjects.every((subject) => info.config.subjects?.includes(subject))) {
+    await manager.streams.update(STREAM, {
+      ...info.config,
+      subjects: [...new Set([...(info.config.subjects ?? []), ...subjects])],
+    });
+  }
 } catch {
   await manager.streams.add({
     name: STREAM,
-    subjects: ['generation.*.v1', 'floor-plan.*.v1', 'scene.*.v1'],
+    subjects: ['generation.*.v1', 'floor-plan.*.v1', 'decoration-analysis.*.v1', 'asset-generation.*.v1', 'scene.*.v1'],
     max_age: 7 * 24 * 60 * 60 * 1_000_000_000,
     duplicate_window: 2 * 60 * 1_000_000_000,
   });
@@ -44,23 +57,7 @@ try {
 
 const providers = new ProviderRegistry();
 providers.register(shellProvider);
-if (process.env.ENABLE_FAKE_PROVIDER === 'true') {
-  providers.register({
-    id: 'fake-provider',
-    generate: async (
-      request: { requestId: string; sources: Array<{ id: string }> },
-      context: { onProgress: (event: Record<string, unknown>) => void },
-    ) => {
-      context.onProgress({ stage: 'generating', progress: 0.38, message: '已理解需求，正在规划家具动线…' });
-      context.onProgress({ stage: 'generating', progress: 0.72, message: '正在生成家具与软装材质…' });
-      return {
-        schemaVersion: '1.0',
-        sceneId: `decor-${request.requestId}`,
-        sourceRefs: request.sources.map((source) => source.id),
-      };
-    },
-  });
-}
+providers.register(createAholoWorldProvider());
 
 const js = jetstream(connection);
 const publisher = {
@@ -79,8 +76,20 @@ const processor = new GenerationProcessor({
 const consumer = await js.consumers.get(STREAM, CONSUMER);
 const messages = await consumer.consume({ max_messages: 8 });
 
+const inFlight = new Set<Promise<void>>();
+const controllers = new Map<string, AbortController>();
+const resets = connection.subscribe('myspace.ephemeral.reset.v1');
+const resetLoop = (async () => {
+  for await (const _message of resets) {
+    for (const controller of controllers.values()) controller.abort();
+  }
+})();
 const shutdown = async () => {
+  for (const controller of controllers.values()) controller.abort();
+  resets.unsubscribe();
   await messages.close();
+  await Promise.allSettled(inFlight);
+  await resetLoop;
   await connection.drain();
 };
 process.once('SIGINT', () => void shutdown());
@@ -92,10 +101,16 @@ for await (const message of messages) {
     message.term('invalid generation request');
     continue;
   }
-  try {
-    await processor.process(parsed.data);
-    message.ack();
-  } catch {
-    message.nak(1000);
-  }
+  const controller = new AbortController();
+  controllers.set(parsed.data.payload.jobId, controller);
+  const task = processor.process(parsed.data, controller.signal)
+    .then(() => message.ack())
+    .catch(() => message.nak(1000))
+    .finally(() => {
+      controllers.delete(parsed.data.payload.jobId);
+      inFlight.delete(task);
+    });
+  inFlight.add(task);
+  if (inFlight.size >= 8) await Promise.race(inFlight);
 }
+await Promise.allSettled(inFlight);

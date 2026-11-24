@@ -78,14 +78,26 @@ def main() -> None:
     assert restored["manifest"]["metadata"]["kind"] == "housing-shell"
     assert len(restored["manifest"]["entities"]) >= 5
 
-    decoration = json_request(
-        f'/v1/housing-sessions/{session["sessionId"]}/decorations',
-        {"brief": "现代奶油风，加入舒适沙发和绿植。", "wallpaper": "cream-white"},
-        {"idempotency-key": f"smoke-decoration-{session['sessionId']}"},
+    locked = json_request(
+        f'/v1/housing-sessions/{session["sessionId"]}/shell-lock',
+        {
+            "sceneId": restored["sceneId"],
+            "baseRevision": restored["manifest"]["revision"],
+            "confirmed": True,
+        },
     )
-    decorated = follow(decoration["jobId"], {"generation.completed", "generation.failed"})
-    if decorated.get("eventType") == "generation.failed":
-        raise RuntimeError(decorated["payload"]["errorMessage"])
+
+    brief = "现代奶油风，加入舒适沙发和绿植。"
+    analysis = json_request(
+        f'/v1/housing-sessions/{session["sessionId"]}/decoration-analyses',
+        {"brief": brief},
+    )
+    analyzed = follow(
+        analysis["jobId"],
+        {"decoration-analysis.completed", "decoration-analysis.failed"},
+    )
+    if analyzed.get("eventType") == "decoration-analysis.failed":
+        raise RuntimeError(analyzed["payload"]["errorMessage"])
 
     print(json.dumps({
         "assetId": intent["assetId"],
@@ -93,8 +105,9 @@ def main() -> None:
         "sessionId": session["sessionId"],
         "sceneId": restored["sceneId"],
         "entityCount": len(restored["manifest"]["entities"]),
-        "decorationJobId": decoration["jobId"],
-        "status": "iteration-2-closed-loop-ok",
+        "shellLockHash": locked["spatialAnchors"]["lockHash"],
+        "decorationAnalysisJobId": analysis["jobId"],
+        "status": "local-foundation-closed-loop-ok",
     }, ensure_ascii=False, indent=2))
 
 

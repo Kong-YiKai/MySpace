@@ -1,27 +1,37 @@
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 import {
+  decorationAnalysisJobSchema,
+  decorationAnalysisSchema,
+  assetGenerationJobSchema,
   floorPlanJobSchema,
   generationJobSchema,
   housingSessionSchema,
   platformEventSchema,
+  providerEvidenceSchema,
   structuredFloorPlanSchema,
   type FloorPlanJob,
+  type DecorationAnalysis,
+  type DecorationAnalysisJob,
+  type AssetGenerationJob,
   type GenerationJob,
   type GenerationRequestedEvent,
   type HousingSession,
   type PlatformEvent,
   type StructuredFloorPlan,
+  type SpatialAnchorSet,
 } from '@spatial-intelligence/contracts';
-import type {
-  AppliedEventResult,
-  AssetRecord,
-  CreateAssetInput,
-  CreateFloorPlanJobInput,
-  CreateGenerationJobInput,
-  CreateGenerationJobResult,
-  CreateHousingSessionInput,
-  OutboxRecord,
-  PlatformRepository,
+import {
+  type AppliedEventResult,
+  type AssetRecord,
+  type CreateAssetInput,
+  type CreateFloorPlanJobInput,
+  type CreateGenerationJobInput,
+  type CreateGenerationJobResult,
+  type CreateHousingSessionInput,
+  type CreateDecorationAnalysisJobInput,
+  type CreateAssetGenerationJobInput,
+  type OutboxRecord,
+  type PlatformRepository,
 } from './ports.js';
 
 export class PostgresPlatformRepository implements PlatformRepository {
@@ -29,6 +39,9 @@ export class PostgresPlatformRepository implements PlatformRepository {
 
   constructor(connectionString: string) {
     this.#pool = new Pool({ connectionString, max: 12 });
+    this.#pool.on('error', (error) => {
+      console.error(JSON.stringify({ event: 'postgres-pool-error', message: error.message }));
+    });
   }
 
   async createAsset(input: CreateAssetInput): Promise<AssetRecord> {
@@ -104,6 +117,84 @@ export class PostgresPlatformRepository implements PlatformRepository {
     return result.rowCount ? housingSessionFromRow(result.rows[0]) : null;
   }
 
+  async lockHousingSession(
+    sessionId: string,
+    anchors: SpatialAnchorSet,
+    lockedAt: string,
+    event?: PlatformEvent,
+  ): Promise<HousingSession | null> {
+    const updated = await this.#transaction(async (client) => {
+      const result = await client.query(
+        `UPDATE housing.sessions
+         SET shell_revision=$2, spatial_anchors=$3::jsonb, locked_at=$4, updated_at=$4
+         WHERE session_id=$1 AND status='shell-ready'
+         RETURNING *`,
+        [sessionId, anchors.shellRevision, JSON.stringify(anchors), lockedAt],
+      );
+      if (result.rowCount && event) await insertOutbox(client, event);
+      return result.rowCount;
+    });
+    if (!updated) return null;
+    const session = await this.findHousingSession(sessionId);
+    return session;
+  }
+
+  async createDecorationAnalysisJob(
+    input: CreateDecorationAnalysisJobInput,
+  ): Promise<DecorationAnalysisJob> {
+    return this.#transaction(async (client) => {
+      if (input.asset) {
+        await client.query("UPDATE asset.assets SET status='uploaded' WHERE asset_id=$1", [input.asset.assetId]);
+      }
+      const result = await client.query(
+        `INSERT INTO decoration.analysis_jobs (
+          job_id, analysis_id, session_id, asset_id, status, progress, brief, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,'accepted',0,$5,$6,$6) RETURNING *`,
+        [input.jobId, input.analysisId, input.sessionId, input.asset?.assetId ?? null, input.brief, input.now],
+      );
+      await insertOutbox(client, input.event);
+      return decorationAnalysisJobFromRow(result.rows[0]);
+    });
+  }
+
+  async findDecorationAnalysisJob(jobId: string): Promise<DecorationAnalysisJob | null> {
+    const result = await this.#pool.query(
+      'SELECT * FROM decoration.analysis_jobs WHERE job_id=$1',
+      [jobId],
+    );
+    return result.rowCount ? decorationAnalysisJobFromRow(result.rows[0]) : null;
+  }
+
+  async findLatestDecorationAnalysis(sessionId: string): Promise<DecorationAnalysis | null> {
+    const result = await this.#pool.query(
+      `SELECT analysis FROM decoration.analysis_jobs
+       WHERE session_id=$1 AND status='complete'
+       ORDER BY updated_at DESC LIMIT 1`,
+      [sessionId],
+    );
+    return result.rowCount ? decorationAnalysisSchema.parse(result.rows[0].analysis) : null;
+  }
+
+  async createAssetGenerationJob(input: CreateAssetGenerationJobInput): Promise<AssetGenerationJob> {
+    return this.#transaction(async (client) => {
+      const result = await client.query(
+        `INSERT INTO asset_generation.jobs (
+          job_id, retry_of_job_id, session_id, analysis_id, object_id, request, status, progress,
+          attempts, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,'accepted',0,$7,$8,$8) RETURNING *`,
+        [input.jobId, input.retryOfJobId ?? null, input.request.sessionId, input.request.analysisId,
+          input.request.objectId, JSON.stringify(input.request), input.attempt ?? 1, input.now],
+      );
+      await insertOutbox(client, input.event);
+      return assetGenerationJobFromRow(result.rows[0]);
+    });
+  }
+
+  async findAssetGenerationJob(jobId: string): Promise<AssetGenerationJob | null> {
+    const result = await this.#pool.query('SELECT * FROM asset_generation.jobs WHERE job_id=$1', [jobId]);
+    return result.rowCount ? assetGenerationJobFromRow(result.rows[0]) : null;
+  }
+
   async createGenerationJob(
     input: CreateGenerationJobInput,
     event: GenerationRequestedEvent,
@@ -136,12 +227,25 @@ export class PostgresPlatformRepository implements PlatformRepository {
     return result.rowCount ? generationJobFromRow(result.rows[0]) : null;
   }
 
+  async findLatestSourceVisualJob(sessionId: string): Promise<GenerationJob | null> {
+    const result = await this.#pool.query(
+      `SELECT * FROM generation.jobs WHERE housing_session_id = $1
+       AND request #>> '{requirements,referenceImagePolicy}' = 'source-render-layout-and-appearance'
+       ORDER BY created_at DESC, job_id DESC LIMIT 1`,
+      [sessionId],
+    );
+    return result.rowCount ? generationJobFromRow(result.rows[0]) : null;
+  }
+
   async apply(event: PlatformEvent): Promise<AppliedEventResult> {
     return this.#transaction(async (client) => {
       switch (event.eventType) {
         case 'floor-plan.validation-requested':
+        case 'decoration-analysis.requested':
         case 'generation.requested':
         case 'scene.revision-created':
+        case 'scene.constraints-locked':
+        case 'asset-generation.requested':
           return {};
         case 'floor-plan.progressed':
           await client.query(
@@ -174,17 +278,113 @@ export class PostgresPlatformRepository implements PlatformRepository {
             [event.payload.assetId, event.payload.errorCode],
           );
           return { jobId: event.payload.jobId };
-        case 'generation.progressed':
+        case 'decoration-analysis.progressed':
           await client.query(
-            `UPDATE generation.jobs SET status=$2, progress=$3, updated_at=$4 WHERE job_id=$1`,
+            `UPDATE decoration.analysis_jobs SET status=$2, progress=$3, updated_at=$4 WHERE job_id=$1`,
             [event.payload.jobId, event.payload.status, event.payload.progress, event.occurredAt],
           );
           return { jobId: event.payload.jobId };
-        case 'generation.completed': {
-          await client.query(
-            `UPDATE generation.jobs SET status='complete', progress=1, scene_id=$2, updated_at=$3 WHERE job_id=$1`,
-            [event.payload.jobId, event.payload.manifest.sceneId, event.occurredAt],
+        case 'decoration-analysis.completed': {
+          const result = await client.query(
+            `UPDATE decoration.analysis_jobs
+             SET status='complete', progress=1, analysis=$2::jsonb, updated_at=$3
+             WHERE job_id=$1 RETURNING session_id`,
+            [event.payload.jobId, JSON.stringify(event.payload.analysis), event.occurredAt],
           );
+          await client.query(
+            `UPDATE asset.assets SET status='validated', checksum_sha256=$2, detected_media_type=$3,
+             width_pixels=$4, height_pixels=$5, validated_at=$6
+             WHERE asset_id=$1`,
+            [event.payload.analysis.sourceAssetId, event.payload.checksumSha256,
+              event.payload.detectedMediaType, event.payload.widthPixels,
+              event.payload.heightPixels, event.occurredAt],
+          );
+          return { jobId: event.payload.jobId, sessionId: result.rows[0]?.session_id };
+        }
+        case 'decoration-analysis.failed': {
+          const result = await client.query(
+            `UPDATE decoration.analysis_jobs
+             SET status='failed', progress=1, error_code=$2, error_message=$3, updated_at=$4
+             WHERE job_id=$1 RETURNING session_id`,
+            [event.payload.jobId, event.payload.errorCode, event.payload.errorMessage, event.occurredAt],
+          );
+          return { jobId: event.payload.jobId, sessionId: result.rows[0]?.session_id };
+        }
+        case 'asset-generation.progressed': {
+          const result = await client.query(
+            `UPDATE asset_generation.jobs SET status=$2, progress=$3,
+             external_task_id=COALESCE($4, external_task_id), provider_evidence=COALESCE($5::jsonb, provider_evidence),
+             updated_at=$6 WHERE job_id=$1 RETURNING session_id`,
+            [event.payload.jobId, event.payload.status, event.payload.progress,
+              event.payload.externalTaskId ?? null,
+              event.payload.providerEvidence ? JSON.stringify(event.payload.providerEvidence) : null,
+              event.occurredAt],
+          );
+          return { jobId: event.payload.jobId, sessionId: result.rows[0]?.session_id };
+        }
+        case 'asset-generation.completed': {
+          const result = await client.query(
+            `UPDATE asset_generation.jobs SET status='complete', progress=1, external_task_id=$2,
+             source_glb_asset_id=$3, normalized_glb_asset_id=$4, normalized_transform=$5::jsonb,
+             provider_evidence=$6::jsonb, updated_at=$7 WHERE job_id=$1 RETURNING session_id`,
+            [event.payload.jobId, event.payload.externalTaskId, event.payload.sourceGlbAssetId,
+              event.payload.normalizedGlbAssetId, JSON.stringify(event.payload.transform),
+              JSON.stringify(event.payload.providerEvidence), event.occurredAt],
+          );
+          await persistProviderEvidence(
+            client, event.eventId, event.payload.jobId, event.payload.providerEvidence, event.occurredAt,
+          );
+          return { jobId: event.payload.jobId, sessionId: result.rows[0]?.session_id };
+        }
+        case 'asset-generation.failed': {
+          const result = await client.query(
+            `UPDATE asset_generation.jobs SET status='failed', progress=1,
+             external_task_id=COALESCE($2, external_task_id), error_code=$3, error_message=$4,
+             retryable=$5, provider_evidence=$6::jsonb, updated_at=$7
+             WHERE job_id=$1 RETURNING session_id`,
+            [event.payload.jobId, event.payload.externalTaskId ?? null, event.payload.errorCode,
+              event.payload.errorMessage, event.payload.retryable,
+              JSON.stringify(event.payload.providerEvidence), event.occurredAt],
+          );
+          await persistProviderEvidence(
+            client, event.eventId, event.payload.jobId, event.payload.providerEvidence, event.occurredAt,
+          );
+          return { jobId: event.payload.jobId, sessionId: result.rows[0]?.session_id };
+        }
+        case 'generation.progressed':
+          const progressedJob = await client.query(
+            `UPDATE generation.jobs SET status=$2, progress=$3,
+             provider_evidence=COALESCE($4::jsonb, provider_evidence), updated_at=$5 WHERE job_id=$1`,
+            [
+              event.payload.jobId,
+              event.payload.status,
+              event.payload.progress,
+              event.payload.providerEvidence ? JSON.stringify(event.payload.providerEvidence) : null,
+              event.occurredAt,
+            ],
+          );
+          if (!progressedJob.rowCount) return {};
+          if (event.payload.providerEvidence) {
+            await persistProviderEvidence(
+              client, event.eventId, event.payload.jobId, event.payload.providerEvidence, event.occurredAt,
+            );
+          }
+          return { jobId: event.payload.jobId };
+        case 'generation.completed': {
+          const completedJob = await client.query(
+            `UPDATE generation.jobs SET status='complete', progress=1, scene_id=$2,
+             provider_evidence=COALESCE($3::jsonb, provider_evidence), updated_at=$4
+             WHERE job_id=$1 RETURNING purpose, housing_session_id`,
+            [
+              event.payload.jobId,
+              event.payload.manifest.sceneId,
+              event.payload.manifest.metadata.providerEvidence
+                ? JSON.stringify(event.payload.manifest.metadata.providerEvidence)
+                : null,
+              event.occurredAt,
+            ],
+          );
+          if (!completedJob.rowCount) return {};
           await client.query(
             `INSERT INTO scene.scenes (scene_id, current_revision, created_at, updated_at)
              VALUES ($1,$2,$3,$3)
@@ -198,22 +398,49 @@ export class PostgresPlatformRepository implements PlatformRepository {
             [event.payload.manifest.sceneId, event.payload.manifest.revision,
               JSON.stringify(event.payload.manifest), event.occurredAt],
           );
-          const session = await client.query(
+          const purpose = completedJob.rows[0]?.purpose;
+          const housingSessionId = completedJob.rows[0]?.housing_session_id;
+          const session = housingSessionId ? await client.query(
             `UPDATE housing.sessions SET status='shell-ready', scene_id=$2, updated_at=$3
-             WHERE shell_job_id=$1 RETURNING session_id`,
-            [event.payload.jobId, event.payload.manifest.sceneId, event.occurredAt],
-          );
+             WHERE session_id=$1 RETURNING session_id`,
+            [housingSessionId, event.payload.manifest.sceneId, event.occurredAt],
+          ) : { rows: [] };
+          if (purpose === 'shell' || purpose === 'decoration') {
+            await persistProviderEvidence(
+              client,
+              event.eventId,
+              event.payload.jobId,
+              event.payload.manifest.metadata.providerEvidence,
+              event.occurredAt,
+            );
+          }
           return { jobId: event.payload.jobId, sessionId: session.rows[0]?.session_id };
         }
         case 'generation.failed': {
-          await client.query(
-            `UPDATE generation.jobs SET status='failed', error_code=$2, error_message=$3, updated_at=$4 WHERE job_id=$1`,
-            [event.payload.jobId, event.payload.errorCode, event.payload.errorMessage, event.occurredAt],
+          const failedJob = await client.query(
+            `UPDATE generation.jobs SET status='failed', error_code=$2, error_message=$3,
+             provider_evidence=COALESCE($4::jsonb, provider_evidence), updated_at=$5
+             WHERE job_id=$1 RETURNING job_id`,
+            [
+              event.payload.jobId,
+              event.payload.errorCode,
+              event.payload.errorMessage,
+              event.payload.providerEvidence ? JSON.stringify(event.payload.providerEvidence) : null,
+              event.occurredAt,
+            ],
           );
+          if (!failedJob.rowCount) return {};
           const session = await client.query(
             `UPDATE housing.sessions SET status='failed', error_code=$2, error_message=$3, updated_at=$4
              WHERE shell_job_id=$1 RETURNING session_id`,
             [event.payload.jobId, event.payload.errorCode, event.payload.errorMessage, event.occurredAt],
+          );
+          await persistProviderEvidence(
+            client,
+            event.eventId,
+            event.payload.jobId,
+            event.payload.providerEvidence,
+            event.occurredAt,
           );
           return { jobId: event.payload.jobId, sessionId: session.rows[0]?.session_id };
         }
@@ -248,6 +475,33 @@ export class PostgresPlatformRepository implements PlatformRepository {
     );
   }
 
+  async clearEphemeralState() {
+    return this.#transaction(async (client) => {
+      const assets = await client.query<{ storage_key: string }>('SELECT storage_key FROM asset.assets');
+      let deletedRecords = 0;
+      for (const statement of [
+        'DELETE FROM scene_service.commands',
+        'DELETE FROM scene_service.revisions',
+        'DELETE FROM scene_service.scenes',
+        'DELETE FROM asset_generation.jobs',
+        'DELETE FROM decoration.analysis_jobs',
+        'DELETE FROM provider.operation_evidence',
+        'DELETE FROM floor_plan.validation_jobs',
+        'UPDATE generation.jobs SET housing_session_id=NULL WHERE housing_session_id IS NOT NULL',
+        'DELETE FROM housing.sessions',
+        'DELETE FROM scene.revisions',
+        'DELETE FROM scene.scenes',
+        'DELETE FROM generation.jobs',
+        'DELETE FROM generation.outbox',
+        'DELETE FROM asset.assets',
+      ]) {
+        const result = await client.query(statement);
+        if (statement.startsWith('DELETE')) deletedRecords += result.rowCount ?? 0;
+      }
+      return { storageKeys: assets.rows.map((row) => row.storage_key), deletedRecords };
+    });
+  }
+
   async close(): Promise<void> {
     await this.#pool.end();
   }
@@ -266,6 +520,48 @@ export class PostgresPlatformRepository implements PlatformRepository {
       client.release();
     }
   }
+}
+
+async function persistProviderEvidence(
+  client: PoolClient,
+  evidenceId: string,
+  jobId: string,
+  rawEvidence: unknown,
+  occurredAt: string,
+): Promise<void> {
+  const parsed = providerEvidenceSchema.safeParse(rawEvidence);
+  if (!parsed.success) return;
+  const evidence = parsed.data;
+  await client.query(
+    `INSERT INTO provider.operation_evidence (
+      evidence_id, internal_job_id, provider_id, operation, external_task_id,
+      external_project_id, status, attempts, input_asset_ids, output_asset_ids,
+      diagnostics, error_code, started_at, completed_at, created_at, updated_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$15)
+    ON CONFLICT (provider_id, external_task_id) WHERE external_task_id IS NOT NULL DO UPDATE SET
+      internal_job_id=EXCLUDED.internal_job_id,
+      status=EXCLUDED.status, attempts=EXCLUDED.attempts,
+      output_asset_ids=EXCLUDED.output_asset_ids, diagnostics=EXCLUDED.diagnostics,
+      error_code=EXCLUDED.error_code, completed_at=EXCLUDED.completed_at,
+      updated_at=EXCLUDED.updated_at`,
+    [
+      evidenceId,
+      jobId,
+      evidence.providerId,
+      evidence.operation,
+      evidence.externalTaskId ?? null,
+      evidence.externalProjectId ?? null,
+      evidence.status,
+      evidence.attempts,
+      JSON.stringify(evidence.inputAssetIds),
+      JSON.stringify(evidence.outputAssetIds),
+      JSON.stringify(evidence.diagnostics),
+      evidence.errorCode ?? null,
+      evidence.startedAt ?? null,
+      evidence.completedAt ?? null,
+      occurredAt,
+    ],
+  );
 }
 
 async function insertGenerationJob(client: PoolClient, input: CreateGenerationJobInput) {
@@ -289,7 +585,7 @@ async function insertOutbox(client: PoolClient, event: PlatformEvent) {
 
 function assetFromRow(row: QueryResultRow): AssetRecord {
   return {
-    assetId: row.asset_id,
+    assetId: row.asset_id ?? undefined,
     storageKey: row.storage_key,
     kind: row.kind,
     status: row.status,
@@ -322,6 +618,7 @@ function generationJobFromRow(row: QueryResultRow): GenerationJob {
     status: row.status,
     progress: Number(row.progress),
     sceneId: row.scene_id ?? undefined,
+    providerEvidence: row.provider_evidence ?? undefined,
     errorCode: row.error_code ?? undefined,
     errorMessage: row.error_message ?? undefined,
     createdAt: new Date(row.created_at).toISOString(),
@@ -337,8 +634,49 @@ function housingSessionFromRow(row: QueryResultRow): HousingSession {
     shellJobId: row.shell_job_id,
     sceneId: row.scene_id ?? undefined,
     manifest: row.manifest ?? undefined,
+    shellRevision: row.shell_revision === null || row.shell_revision === undefined
+      ? undefined : Number(row.shell_revision),
+    shellLocked: row.locked_at !== null && row.locked_at !== undefined,
+    spatialAnchors: row.spatial_anchors ?? undefined,
+    lockedAt: row.locked_at ? new Date(row.locked_at).toISOString() : undefined,
     errorCode: row.error_code ?? undefined,
     errorMessage: row.error_message ?? undefined,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  });
+}
+
+function decorationAnalysisJobFromRow(row: QueryResultRow): DecorationAnalysisJob {
+  return decorationAnalysisJobSchema.parse({
+    jobId: row.job_id,
+    sessionId: row.session_id,
+    assetId: row.asset_id ?? undefined,
+    status: row.status,
+    progress: Number(row.progress),
+    analysis: row.analysis ?? undefined,
+    errorCode: row.error_code ?? undefined,
+    errorMessage: row.error_message ?? undefined,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  });
+}
+
+function assetGenerationJobFromRow(row: QueryResultRow): AssetGenerationJob {
+  return assetGenerationJobSchema.parse({
+    jobId: row.job_id,
+    retryOfJobId: row.retry_of_job_id ?? undefined,
+    request: row.request,
+    status: row.status,
+    progress: Number(row.progress),
+    attempts: Number(row.attempts),
+    externalTaskId: row.external_task_id ?? undefined,
+    sourceGlbAssetId: row.source_glb_asset_id ?? undefined,
+    normalizedGlbAssetId: row.normalized_glb_asset_id ?? undefined,
+    transform: row.normalized_transform ?? undefined,
+    providerEvidence: row.provider_evidence ?? undefined,
+    errorCode: row.error_code ?? undefined,
+    errorMessage: row.error_message ?? undefined,
+    retryable: row.retryable ?? undefined,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   });

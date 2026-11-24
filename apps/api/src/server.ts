@@ -42,6 +42,8 @@ const app = createApp({
   events,
   uploadUrlTtlSeconds: Number(process.env.UPLOAD_URL_TTL_SECONDS ?? 300),
   sseHeartbeatMs: Number(process.env.SSE_HEARTBEAT_MS ?? 15_000),
+  sceneServiceUrl: process.env.SCENE_SERVICE_URL ?? 'http://127.0.0.1:3100',
+  onEphemeralStateCleared: () => publisher.resetEphemeralRuntime(),
 });
 
 const shutdown = async () => {

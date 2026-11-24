@@ -8,3 +8,4 @@ artifacts/
 *.log
 .env
 .DS_Store
+dist-exhibit/

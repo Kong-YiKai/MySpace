@@ -38,12 +38,13 @@ export class GenerationProcessor {
     this.#createId = createId;
   }
 
-  async process(rawEvent: unknown): Promise<void> {
+  async process(rawEvent: unknown, signal?: AbortSignal): Promise<void> {
     const event = generationRequestedEventSchema.parse(rawEvent);
     const progressPublishes: Promise<void>[] = [];
 
     try {
       const manifest = await this.#pipeline.generate(event.payload.request, {
+        signal,
         onProgress: (progress: Record<string, unknown>) => {
           const status = progress.stage;
           if (status !== 'accepted' && status !== 'generating' && status !== 'normalizing') return;
@@ -54,6 +55,7 @@ export class GenerationProcessor {
               status,
               progress: typeof progress.progress === 'number' ? progress.progress : 0,
               providerId: typeof progress.providerId === 'string' ? progress.providerId : undefined,
+              providerEvidence: progress.providerEvidence,
               message: typeof progress.message === 'string' ? progress.message : undefined,
             },
           });
@@ -74,7 +76,8 @@ export class GenerationProcessor {
           jobId: event.payload.jobId,
           errorCode: errorCode(error),
           errorMessage: error instanceof Error ? error.message : 'Unknown generation failure',
-          retryable: false,
+          retryable: retryable(error),
+          providerEvidence: providerEvidence(error),
         },
       }));
     }
@@ -102,4 +105,14 @@ function errorCode(error: unknown): string {
     if (typeof code === 'string' && code.length > 0) return code;
   }
   return 'generation_failed';
+}
+
+function retryable(error: unknown): boolean {
+  return typeof error === 'object' && error !== null
+    && 'retryable' in error && (error as { retryable?: unknown }).retryable === true;
+}
+
+function providerEvidence(error: unknown): unknown {
+  return typeof error === 'object' && error !== null && 'evidence' in error
+    ? (error as { evidence?: unknown }).evidence : undefined;
 }

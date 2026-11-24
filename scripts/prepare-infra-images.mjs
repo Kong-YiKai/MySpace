@@ -4,7 +4,9 @@ const localOnly = process.argv.includes('--local-only');
 const images = [
   { source: 'postgres:17-alpine', target: 'myspace/postgres:17-alpine' },
   { source: 'nats:2.12-alpine', target: 'myspace/nats:2.12-alpine' },
-  { source: 'minio/minio:latest', target: 'myspace/minio:latest' },
+  // MinIO's former public image is no longer reliably available. RustFS keeps
+  // the same local S3 contract (ports 9000/9001) and remains publicly pullable.
+  { source: 'rustfs/rustfs:latest', target: 'myspace/rustfs:latest' },
 ];
 
 for (const image of images) {

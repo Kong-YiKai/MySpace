@@ -97,7 +97,7 @@ FLOOR_PLAN_UNDERSTANDING_SCHEMA = {
     "properties": {
         "planType": {
             "type": "string",
-            "enum": ["decorated_floor_plan", "line_drawing", "blueprint", "not_floor_plan"],
+            "enum": ["decorated_floor_plan", "line_drawing", "blueprint", "perspective_render", "not_floor_plan"],
         },
         "orientation": {"type": "string", "enum": ["portrait", "landscape", "square"]},
         "shouldReject": {"type": "boolean"},
@@ -172,6 +172,7 @@ FLOOR_PLAN_UNDERSTANDING_SCHEMA = {
         "entrance": {
             "type": "object",
             "properties": {
+                "kind": {"type": "string", "enum": ["door", "stair-landing"]},
                 "position": POINT_SCHEMA,
                 "direction": {
                     "type": "object",
@@ -185,8 +186,30 @@ FLOOR_PLAN_UNDERSTANDING_SCHEMA = {
                 "wallId": {"type": "string"},
                 "confidence": {"type": "number", "minimum": 0, "maximum": 1},
             },
-            "required": ["position", "direction", "wallId", "confidence"],
+            "required": ["kind", "position", "direction", "wallId", "confidence"],
             "additionalProperties": False,
+        },
+        "furnitureHints": {
+            "type": "array", "maxItems": 48,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["sofa", "coffee-table", "bed", "wardrobe", "desk", "chair", "dining-table"]},
+                    "position": POINT_SCHEMA,
+                    "direction": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number", "minimum": -1, "maximum": 1},
+                            "y": {"type": "number", "minimum": -1, "maximum": 1},
+                        },
+                        "required": ["x", "y"],
+                        "additionalProperties": False,
+                    },
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "required": ["kind", "position", "direction", "confidence"],
+                "additionalProperties": False,
+            },
         },
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "ignoredElements": {"type": "array", "maxItems": 24, "items": {"type": "string"}},
@@ -209,35 +232,25 @@ FLOOR_PLAN_UNDERSTANDING_SCHEMA = {
     "required": [
         "planType", "orientation", "shouldReject", "rejectionReason", "bounds", "estimatedWidthMeters",
         "estimatedDepthMeters", "scaleConfidence", "walls", "openings", "rooms", "entrance",
-        "confidence", "ignoredElements", "uncertainRegions", "warnings",
+        "confidence", "ignoredElements", "uncertainRegions", "warnings", "furnitureHints",
     ],
     "additionalProperties": False,
 }
 
-FLOOR_PLAN_REVIEW_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "approved": {"type": "boolean"},
-        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-        "summary": {"type": "string"},
-        "criticalIssues": {"type": "array", "maxItems": 12, "items": {"type": "string"}},
-    },
-    "required": ["approved", "confidence", "summary", "criticalIssues"],
-    "additionalProperties": False,
-}
-
-
 VISION_INSTRUCTIONS = """
-你是住宅户型图结构分析器。输入可能是彩色装修效果户型、黑白线稿或工程蓝图。
-只分析建筑空间，不要把家具、家电、地砖缝、木纹、地毯、装饰、文字、标尺、水印或阴影当成墙。
+你是住宅户型结构分析器。输入可能是正俯视装修效果户型、黑白线稿、工程蓝图，或清晰展示住宅分区的斜俯视三维剖顶效果图。
+不要把家具、家电、地砖缝、木纹、地毯、装饰、文字、标尺、水印或阴影当成墙。
 
 坐标使用整张输入图的归一化坐标：左上角 (0,0)，右下角 (1000,1000)。
+- 对斜俯视剖顶效果图，planType 为 perspective_render。先在脑中将地面和门洞还原到同一个正俯视平面，再在该平面使用 0..1000 归一化坐标；不使用原图的透视斜线坐标。尺度按估算处理，并在 warnings 说明遮挡处。普通单房间摄影照片不是这类图。
 - bounds 必须紧贴住宅建筑范围，排除页面留白和水印。
 - 每面实体墙只输出一条中心线。粗墙的两条边缘绝不能输出成两面墙。
 - 墙在门窗处仍是一面连续墙；门窗通过 openings 关联到对应 wallId。
 - 不要为了闭合而虚构矩形外墙；忠实保留凹凸、阳台、花池等真实外轮廓。
 - 房间 polygon 表示可使用的地面区域，按墙内边界近似。
-- 入口必须是实际入户门，不是阳台门或卧室门。
+- 有真实入户门时入口 kind=door，不能用阳台门或卧室门代替。独立二层或更高楼层没有外部入户门时，入口 kind=stair-landing，position 放在楼梯上来后紧邻梯井的安全楼面，direction 朝向走廊，wallId 留空。把梯井单独标为 kind=stairs，不要包含相邻的可走过道。
+- 房间使用 bedroom、living-room、dining-room、study、bathroom、kitchen、corridor、balcony、stairs 等 kind。
+- furnitureHints 只标图上可见且能识别的关键家具。position 是落地占地中心，direction 指向家具正面，床指向床尾。优先标沙发、茶几、床、衣柜、书桌、餐桌，避免同一物品重复标注。空房间不要生成提示。
 - 图片没有明确尺寸时，根据标准门宽、家具和常见住宅尺度估算米制宽深，并降低 scaleConfidence。
 - 看不清或无法形成可信拓扑时 shouldReject=true，不得编造。
 
@@ -270,11 +283,11 @@ def recognize_floor_plan(
                 retryable=True,
             ) from error
 
-    try:
+    def understand(vision_model: str, effort: str) -> dict[str, Any]:
         response = client.responses.create(
-            model=model_id,
+            model=vision_model,
             store=False,
-            reasoning={"effort": os.getenv("FLOOR_PLAN_REASONING_EFFORT", "medium")},
+            reasoning={"effort": effort},
             max_output_tokens=12_000,
             instructions=VISION_INSTRUCTIONS,
             input=[{
@@ -303,80 +316,53 @@ def recognize_floor_plan(
         output_text = getattr(response, "output_text", "")
         if not output_text:
             raise ValueError("OpenAI response did not contain output_text")
-        understanding = json.loads(output_text)
+        return json.loads(output_text)
+
+    try:
+        understanding = understand(model_id, os.getenv("FLOOR_PLAN_REASONING_EFFORT", "medium"))
     except RecognitionError:
         raise
     except Exception as error:
+        status = getattr(error, "status_code", None)
+        if status in {401, 403}:
+            raise RecognitionError("floor_plan_ai_auth", "户型理解服务的 OpenAI Key 或项目权限无效") from error
         raise RecognitionError(
             "floor_plan_ai_failed",
             "GPT 户型理解暂时失败，请稍后重试",
             retryable=True,
         ) from error
 
+    if understanding["planType"] != "not_floor_plan" and model is None:
+        fallback_model = os.getenv("FLOOR_PLAN_FALLBACK_MODEL", "gpt-5.6-sol")
+        if fallback_model != model_id and needs_layout_retry(understanding):
+            if progress_callback is not None:
+                progress_callback("recognizing", 0.48, "正在复核门洞、楼梯和各房间边界…")
+            try:
+                refined = understand(fallback_model, "low")
+                if refined["planType"] != "not_floor_plan" and not needs_layout_retry(refined):
+                    understanding, model_id = refined, fallback_model
+            except Exception:
+                # Retain the first result and apply the same quality checks below.
+                pass
+
+    if lacks_room_connections(understanding) and understanding["planType"] != "not_floor_plan":
+        raise RecognitionError("layout_needs_review", "未能可靠识别房间或门洞，请上传裁切后的清晰户型图",
+                               float(understanding["confidence"]))
     if progress_callback is not None:
         progress_callback("geometry-refining", 0.58, "GPT 已理解户型，正在吸附真实墙线并建立拓扑…")
     plan = build_structured_plan(image, understanding, model_id)
-    if progress_callback is not None:
-        progress_callback("gpt-reviewing", 0.72, "几何结构已生成，GPT 正在复核漏墙、错墙与真实入口…")
-    try:
-        review_response = client.responses.create(
-            model=model_id,
-            store=False,
-            reasoning={"effort": os.getenv("FLOOR_PLAN_REASONING_EFFORT", "medium")},
-            max_output_tokens=3_000,
-            instructions=(
-                "你是住宅户型几何质量审查员。第一张图是原始户型，第二张图是系统生成的几何叠加图："
-                "红线是墙体中心线，蓝线是房间地面区域，绿点和箭头是入户位置与方向。"
-                "逐项核对建筑外轮廓、主要隔墙、房间关系、门窗和真实入户门。"
-                "如果家具、地砖、文字被当成墙，主要墙体缺失，入口错误，或结构与原图明显不符，必须 approved=false。"
-            ),
-            input=[{
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": "复核几何叠加结果。宁可拒绝，也不要批准错误毛坯。"},
-                    {"type": "input_image", "image_url": image_data_url(image), "detail": "high"},
-                    {
-                        "type": "input_image",
-                        "image_url": geometry_overlay_data_url(image, plan, understanding["bounds"]),
-                        "detail": "high",
-                    },
-                ],
-            }],
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "floor_plan_geometry_review",
-                    "strict": True,
-                    "schema": FLOOR_PLAN_REVIEW_SCHEMA,
-                },
-            },
-        )
-        review_text = getattr(review_response, "output_text", "")
-        if not review_text:
-            raise ValueError("OpenAI review did not contain output_text")
-        review = json.loads(review_text)
-    except Exception as error:
-        raise RecognitionError(
-            "floor_plan_ai_failed",
-            "GPT 户型复核暂时失败，请稍后重试",
-            retryable=True,
-        ) from error
-
-    review_confidence = float(review["confidence"])
-    review_approved = bool(review["approved"]) and review_confidence >= 0.68 and not review["criticalIssues"]
-    plan["confidence"] = round(min(float(plan["confidence"]), review_confidence), 4)
-    plan["diagnostics"]["reviewConfidence"] = round(review_confidence, 4)
-    plan["diagnostics"]["reviewSummary"] = review["summary"]
-    plan["diagnostics"]["reviewApproved"] = review_approved
-    plan["diagnostics"]["reviewCriticalIssues"] = review["criticalIssues"]
-    plan["diagnostics"]["requiresUserConfirmation"] = not review_approved
-    if not review_approved:
-        plan["diagnostics"]["warnings"] = [
-            *plan["diagnostics"]["warnings"],
-            str(review["summary"]).strip() or "GPT 建议用户确认几何结果",
-            *review["criticalIssues"],
-        ]
     return plan
+
+
+def needs_layout_retry(understanding: dict[str, Any]) -> bool:
+    return (
+        bool(understanding["shouldReject"]) or float(understanding["confidence"]) < 0.45
+        or lacks_room_connections(understanding)
+    )
+
+
+def lacks_room_connections(understanding: dict[str, Any]) -> bool:
+    return len(understanding["walls"]) > 8 and (not understanding["rooms"] or not understanding["openings"])
 
 
 def image_data_url(image: np.ndarray) -> str:
@@ -388,45 +374,21 @@ def image_data_url(image: np.ndarray) -> str:
     return f"data:image/jpeg;base64,{encoded}"
 
 
-def geometry_overlay_data_url(
-    image: np.ndarray,
-    plan: dict[str, Any],
-    bounds: dict[str, Any],
-) -> str:
-    overlay = image.copy()
-    image_height, image_width = overlay.shape[:2]
-
-    def to_pixel(point: list[float]) -> tuple[int, int]:
-        normalized_x = bounds["left"] + point[0] / plan["width"] * (bounds["right"] - bounds["left"])
-        normalized_y = bounds["top"] + point[1] / plan["depth"] * (bounds["bottom"] - bounds["top"])
-        return (
-            round(normalized_x / 1000 * (image_width - 1)),
-            round(normalized_y / 1000 * (image_height - 1)),
-        )
-
-    for room in plan["rooms"]:
-        polygon = np.asarray([to_pixel(point) for point in room["polygon"]], dtype=np.int32)
-        cv2.polylines(overlay, [polygon], True, (30, 110, 255), 3, cv2.LINE_AA)
-    for wall in plan["walls"]:
-        cv2.line(overlay, to_pixel(wall["start"]), to_pixel(wall["end"]), (255, 45, 35), 5, cv2.LINE_AA)
-    entrance = to_pixel(plan["entrance"]["position"])
-    direction = plan["entrance"]["direction"]
-    target = (round(entrance[0] + direction[0] * 38), round(entrance[1] + direction[1] * 38))
-    cv2.circle(overlay, entrance, 9, (25, 190, 70), -1, cv2.LINE_AA)
-    cv2.arrowedLine(overlay, entrance, target, (25, 190, 70), 5, cv2.LINE_AA, tipLength=0.35)
-    return image_data_url(overlay)
-
-
 def build_structured_plan(image: np.ndarray, understanding: dict[str, Any], model_id: str) -> dict[str, Any]:
     confidence = float(understanding["confidence"])
     semantic_warnings: list[str] = []
-    if understanding["shouldReject"] or understanding["planType"] == "not_floor_plan":
+    if understanding["planType"] == "not_floor_plan":
         message = understanding["rejectionReason"].strip() or "GPT 未识别到可信的住宅户型结构"
         raise RecognitionError("low_plan_confidence", message, confidence)
+    perspective = understanding["planType"] == "perspective_render"
+    if perspective:
+        semantic_warnings.append("斜俯视效果图的布局和尺寸为估算，请检查门洞与动线")
+    if understanding["shouldReject"]:
+        semantic_warnings.append(understanding["rejectionReason"].strip() or "户型结构按低置信度结果生成")
     bounds = dict(understanding["bounds"])
     if bounds["right"] - bounds["left"] < 120 or bounds["bottom"] - bounds["top"] < 120:
         bounds = {"left": 0, "top": 0, "right": 1000, "bottom": 1000}
-        semantic_warnings.append("GPT 给出的住宅范围异常，已回退到完整图片范围")
+        semantic_warnings.append("住宅边界不明确，已按完整户型图范围生成")
 
     width = round(float(understanding["estimatedWidthMeters"]), 4)
     depth = round(float(understanding["estimatedDepthMeters"]), 4)
@@ -434,7 +396,9 @@ def build_structured_plan(image: np.ndarray, understanding: dict[str, Any], mode
     walls: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     for index, candidate in enumerate(wall_candidates):
-        start_norm, end_norm = refine_wall_axis(image, candidate["start"], candidate["end"])
+        start_norm, end_norm = (candidate["start"], candidate["end"]) if perspective else refine_wall_axis(
+            image, candidate["start"], candidate["end"]
+        )
         start = normalized_to_plan(start_norm, bounds, width, depth)
         end = normalized_to_plan(end_norm, bounds, width, depth)
         if hypot(end[0] - start[0], end[1] - start[1]) < 0.35:
@@ -452,6 +416,9 @@ def build_structured_plan(image: np.ndarray, understanding: dict[str, Any], mode
 
     walls = snap_wall_endpoints(walls)
     walls = deduplicate_walls(walls)
+    if len(walls) < 2:
+        walls = fallback_envelope_walls(width, depth)
+        semantic_warnings.append("墙体候选不足，已按识别到的住宅外轮廓生成基础毛坯")
     topology_diagnostics = validate_wall_topology(walls, width, depth, confidence)
     source_to_wall = {
         source_id: wall["id"]
@@ -498,22 +465,25 @@ def build_structured_plan(image: np.ndarray, understanding: dict[str, Any], mode
         })
     if not rooms:
         rooms.append({
-            "id": "room-fallback",
+            "id": "residential-space",
             "kind": "residential-space",
             "label": "住宅空间",
             "polygon": [[0.0, 0.0], [width, 0.0], [width, depth], [0.0, depth]],
-            "confidence": round(min(confidence, 0.35), 4),
+            "confidence": round(min(confidence, 0.4), 4),
         })
-        semantic_warnings.append("未形成独立房间区域，已使用住宅整体范围供用户确认")
+        semantic_warnings.append("房间分区不明确，已保留整体住宅空间并继续生成")
 
     room_warnings = validate_rooms(rooms, walls, width, depth)
     opening_warnings = validate_openings(openings, walls)
 
     entrance = understanding["entrance"]
     entrance_position = normalized_to_plan(entrance["position"], bounds, width, depth)
+    stair_landing = entrance.get("kind") == "stair-landing" and any(
+        "stair" in room["kind"].lower() or "楼梯" in room["label"] for room in rooms
+    )
     entrance_wall_id = source_to_wall.get(str(entrance["wallId"]))
     entrance_warnings: list[str] = []
-    if entrance_wall_id is None:
+    if entrance_wall_id is None and not stair_landing:
         entrance_candidates = [wall for wall in walls if wall["sourceKind"] == "exterior"] or walls
         entrance_wall = min(
             entrance_candidates,
@@ -526,16 +496,30 @@ def build_structured_plan(image: np.ndarray, understanding: dict[str, Any], mode
     except RecognitionError:
         direction = [0.0, 0.0]
         entrance_warnings.append("GPT 入户方向不明确，系统已根据墙体法线推断")
-    entrance_position, direction, inferred_opening, repair_warnings = repair_and_snap_entrance(
-        entrance_position,
-        direction,
-        entrance_wall_id,
-        walls,
-        openings,
-    )
-    entrance_warnings.extend(repair_warnings)
-    if inferred_opening is not None:
-        openings.append(inferred_opening)
+    if stair_landing:
+        if direction == [0.0, 0.0]:
+            direction = [0.0, -1.0]
+    elif entrance_wall_id is not None:
+        entrance_position, direction, inferred_opening, repair_warnings = repair_and_snap_entrance(
+            entrance_position, direction, entrance_wall_id, walls, openings,
+        )
+        entrance_warnings.extend(repair_warnings)
+        if inferred_opening is not None:
+            openings.append(inferred_opening)
+    furniture_hints = []
+    for hint in understanding.get("furnitureHints", []):
+        if float(hint["confidence"]) < 0.58:
+            continue
+        try:
+            facing = normalize_direction(hint["direction"])
+        except RecognitionError:
+            facing = [0.0, 1.0]
+        furniture_hints.append({
+            "kind": hint["kind"],
+            "position": normalized_to_plan(hint["position"], bounds, width, depth),
+            "direction": facing,
+            "confidence": float(hint["confidence"]),
+        })
     combined_warnings = [
         *understanding["warnings"],
         *semantic_warnings,
@@ -558,12 +542,14 @@ def build_structured_plan(image: np.ndarray, understanding: dict[str, Any], mode
         "schemaVersion": "1.0",
         "width": width,
         "depth": depth,
-        "scaleMetersPerPixel": round(meters_per_pixel, 8),
-        "scaleEstimated": float(understanding["scaleConfidence"]) < 0.9,
+        "scaleMetersPerPixel": None if perspective else round(meters_per_pixel, 8),
+        "scaleEstimated": perspective or float(understanding["scaleConfidence"]) < 0.9,
         "walls": public_walls,
         "openings": openings,
         "rooms": rooms,
-        "entrance": {"position": entrance_position, "direction": direction},
+        "furnitureHints": furniture_hints,
+        "entrance": {"position": entrance_position, "direction": direction,
+                     **({"kind": "stair-landing"} if stair_landing else {})},
         "confidence": round(confidence, 4),
         "diagnostics": {
             "provider": "openai-vision-geometry-v2",
@@ -588,6 +574,19 @@ def build_structured_plan(image: np.ndarray, understanding: dict[str, Any], mode
             "warnings": combined_warnings,
         },
     }
+
+
+def fallback_envelope_walls(width: float, depth: float) -> list[dict[str, Any]]:
+    points = [[0.0, 0.0], [width, 0.0], [width, depth], [0.0, depth]]
+    return [{
+        "id": f"exterior-{index + 1}",
+        "sourceIds": [],
+        "sourceKind": "exterior",
+        "start": points[index],
+        "end": points[(index + 1) % 4],
+        "thickness": 0.2,
+        "height": 2.8,
+    } for index in range(4)]
 
 
 def normalized_to_plan(

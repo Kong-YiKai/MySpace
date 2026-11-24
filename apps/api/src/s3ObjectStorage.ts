@@ -1,5 +1,7 @@
 import {
   CreateBucketCommand,
+  DeleteObjectsCommand,
+  GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -52,6 +54,14 @@ export class S3ObjectStorage implements ObjectStorage {
     }), { expiresIn: expiresInSeconds });
   }
 
+  async createDownloadUrl(asset: AssetRecord, expiresInSeconds: number): Promise<string> {
+    return getSignedUrl(this.#client, new GetObjectCommand({
+      Bucket: this.#bucket,
+      Key: asset.storageKey,
+      ResponseContentDisposition: `attachment; filename="${safeFileName(asset.originalFileName)}"`,
+    }), { expiresIn: expiresInSeconds });
+  }
+
   async verifyUploadedObject(asset: AssetRecord): Promise<void> {
     let result;
     try {
@@ -62,8 +72,9 @@ export class S3ObjectStorage implements ObjectStorage {
     if (result.ContentLength !== asset.sizeBytes) {
       throw objectStorageError('upload_size_mismatch', '上传文件大小与授权信息不一致');
     }
-    if (result.ContentLength > 10 * 1024 * 1024) {
-      throw objectStorageError('file_too_large', '户型图不能超过 10 MB');
+    const maximum = assetSizeLimit(asset.kind);
+    if (result.ContentLength > maximum) {
+      throw objectStorageError('file_too_large', `上传文件不能超过 ${Math.round(maximum / 1024 / 1024)} MB`);
     }
     if (result.ContentType !== asset.expectedMediaType) {
       throw objectStorageError('upload_media_type_mismatch', '上传文件类型与授权信息不一致');
@@ -72,6 +83,28 @@ export class S3ObjectStorage implements ObjectStorage {
       throw objectStorageError('upload_metadata_mismatch', '上传文件元数据不完整');
     }
   }
+
+  async deleteObjects(storageKeys: string[]): Promise<void> {
+    for (let offset = 0; offset < storageKeys.length; offset += 1_000) {
+      const keys = storageKeys.slice(offset, offset + 1_000);
+      if (keys.length === 0) continue;
+      await this.#client.send(new DeleteObjectsCommand({
+        Bucket: this.#bucket,
+        Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+      }));
+    }
+  }
+}
+
+function assetSizeLimit(kind: AssetRecord['kind']): number {
+  if (kind === 'floor-plan') return 10 * 1024 * 1024;
+  if (kind === 'decoration-reference-image') return 30 * 1024 * 1024;
+  if (kind === 'room-capture-image' || kind === 'reference-image') return 50 * 1024 * 1024;
+  return 2 * 1024 * 1024 * 1024;
+}
+
+function safeFileName(fileName: string): string {
+  return fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 180) || 'asset.bin';
 }
 
 function objectStorageError(code: string, message: string): Error & { code: string } {

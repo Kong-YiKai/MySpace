@@ -158,7 +158,7 @@ async def main() -> None:
     except NotFoundError:
         await jetstream.add_stream(
             name="MYSPACE_EVENTS",
-            subjects=["generation.*.v1", "floor-plan.*.v1", "scene.*.v1"],
+            subjects=["generation.*.v1", "floor-plan.*.v1", "decoration-analysis.*.v1", "asset-generation.*.v1", "scene.*.v1"],
             max_age=7 * 24 * 60 * 60,
             duplicate_window=2 * 60,
         )
